@@ -19,7 +19,7 @@ SWAGGER_HEADERS = {
     "description": (
         "## 비디오 프레임 분석 엔진 \n"
         "- API Swagger \n"
-        "- 비디오에서 프레임을 추출하고 GPT-4로 분석 \n"
+        "- 비디오에서 프레임을 추출하고 Linkbricks Horizon-Ai로 분석 \n"
         "- MP4, MOV, AVI, MKV, WMV, FLV, OGG, WebM \n"
         "- YOUTUBE 지원"
     ),
