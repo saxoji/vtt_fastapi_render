@@ -10,7 +10,8 @@ import cv2
 import base64
 from moviepy.editor import VideoFileClip
 import asyncio
-import openai
+import aiohttp  # 추가된 임포트
+import openai  # 필요한 경우 제거 가능
 
 # Swagger 헤더 설정
 SWAGGER_HEADERS = {
@@ -164,10 +165,8 @@ def extract_frames_from_video(video_file: str, seconds_per_frame: int):
     video.release()
     return frames, timecodes
 
-# 여러 이미지를 GPT-4 API로 분석하는 함수
+# 여러 이미지를 GPT-4o API로 분석하는 함수
 async def analyze_frames_with_gpt4(api_key: str, frames: List[str], timecodes: List[str]) -> List[str]:
-    openai.api_key = api_key
-
     # 메시지 내용 구성
     content_list = []
     content_list.append({"type": "text", "text": "다음은 비디오에서 추출한 이미지들입니다. 각 이미지의 타임코드는 다음과 같습니다. 각 이미지에 대해 무엇이 보이는지 설명해주세요."})
@@ -194,15 +193,26 @@ async def analyze_frames_with_gpt4(api_key: str, frames: List[str], timecodes: L
 
     try:
         # API 요청
-        response = await openai.ChatCompletion.acreate(
-            model="gpt-4o",  # GPT-4 Vision 모델 사용
-            messages=messages,
-            max_tokens=2000  # 필요에 따라 조정
-        )
-
-        description = response['choices'][0]['message']['content']
-        # 응답을 분석하여 각 타임코드별 설명을 리스트로 반환
-        analyzed_descriptions = description.strip().split('\n')
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "gpt-4o",
+                    "messages": messages,
+                    "max_tokens": 2000
+                }
+            ) as resp:
+                if resp.status != 200:
+                    error_detail = await resp.text()
+                    raise HTTPException(status_code=resp.status, detail=f"OpenAI API 에러: {error_detail}")
+                result = await resp.json()
+                description = result['choices'][0]['message']['content']
+                # 응답을 분석하여 각 타임코드별 설명을 리스트로 반환
+                analyzed_descriptions = description.strip().split('\n')
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"이미지 분석 중 오류 발생: {str(e)}")
 
@@ -210,19 +220,30 @@ async def analyze_frames_with_gpt4(api_key: str, frames: List[str], timecodes: L
 
 # 전체 분석 결과를 요약하는 함수
 async def summarize_descriptions(api_key: str, descriptions: List[str]) -> str:
-    openai.api_key = api_key
+    messages = [
+        {"role": "system", "content": "당신은 비디오 콘텐츠를 요약하는 도우미입니다."},
+        {"role": "user", "content": "다음은 각 시간대별 비디오에서 추출된 프레임 이미지 설명입니다. 이를 기반으로 비디오의 전체적인 내용을 요약해주세요:\n" + "\n".join(descriptions)}
+    ]
 
     try:
-        response = await openai.ChatCompletion.acreate(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "당신은 비디오 콘텐츠를 요약하는 도우미입니다."},
-                {"role": "user", "content": "다음은 각 시간대별 비디오에서 출출된 프레임 이미지 설명입니다. 이를 기반으로 비디오의 전체적인 내용을 요약해주세요:\n" + "\n".join(descriptions)}
-            ],
-            temperature=0,
-            max_tokens=2000
-        )
-        summary_text = response['choices'][0]['message']['content']
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "gpt-4o",
+                    "messages": messages,
+                    "max_tokens": 2000
+                }
+            ) as resp:
+                if resp.status != 200:
+                    error_detail = await resp.text()
+                    raise HTTPException(status_code=resp.status, detail=f"OpenAI API 에러: {error_detail}")
+                result = await resp.json()
+                summary_text = result['choices'][0]['message']['content']
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"요약 중 오류 발생: {str(e)}")
 
