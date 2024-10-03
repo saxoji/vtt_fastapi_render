@@ -91,20 +91,20 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
 
         data = response.json()
 
-        smallest_resolution = None
-        smallest_mp4_url = None
+        highest_resolution = None
+        highest_mp4_url = None
 
         for format in data.get('formats', []):
             if format.get('mimeType', '').startswith('video/mp4'):
                 width = format.get('width')
                 height = format.get('height')
                 if width and height:
-                    if smallest_resolution is None or (width * height) < (smallest_resolution[0] * smallest_resolution[1]):
-                        smallest_resolution = (width, height)
-                        smallest_mp4_url = format.get('url')
+                    if highest_resolution is None or (width * height) > (highest_resolution[0] * highest_resolution[1]):
+                        highest_resolution = (width, height)
+                        highest_mp4_url = format.get('url')
 
-        if smallest_mp4_url:
-            video_response = requests.get(smallest_mp4_url, stream=True)
+        if highest_mp4_url:
+            video_response = requests.get(highest_mp4_url, stream=True)
             video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
             with open(video_file, 'wb') as file:
                 for chunk in video_response.iter_content(chunk_size=1024):
@@ -179,7 +179,7 @@ async def analyze_frames_with_gpt4(api_key: str, frames: List[str], timecodes: L
             "type": "image_url",
             "image_url": {
                 "url": f"data:image/jpeg;base64,{frame_base64}",
-                "detail": "low"  # 필요에 따라 "high"로 변경 가능
+                "detail": "high"  # 필요에 따라 "high"로 변경 가능
             }
         })
 
