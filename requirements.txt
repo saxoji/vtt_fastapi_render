@@ -1,1 +1,9 @@
 fastapi[all]
+aiofiles
+aiohttp
+openai
+pydantic
+yt-dlp
+moviepy
+pytube
+opencv-contrib-python
