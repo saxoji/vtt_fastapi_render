@@ -30,8 +30,8 @@ SWAGGER_HEADERS = {
         "url": "https://www.linkbricks.com",
         "email": "contact@linkbricks.com",
         "license_info": {
-            "name": "MIT",
-            "url": "https://opensource.org/licenses/MIT",
+            "name": "GNU GPL 3.0",
+            "url": "https://www.gnu.org/licenses/gpl-3.0.html",
         },
     },
 }
