@@ -2,16 +2,17 @@ import os
 import uuid
 import requests
 import json
+import base64
+import datetime
+import cv2
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
-import datetime
-import cv2
-import base64
 from moviepy.editor import VideoFileClip
 import asyncio
-import aiohttp  # 추가된 임포트
-import openai  # 필요한 경우 제거 가능
+import aiohttp
+import openai
 
 # Swagger 헤더 설정
 SWAGGER_HEADERS = {
@@ -50,8 +51,9 @@ class VideoFrameAnalysisRequest(BaseModel):
     api_key: str
     auth_key: str
     video_url: str  # 동영상 URL (유튜브 링크 포함)
-    seconds_per_frame: int  # 프레임 추출 간격(초)
+    seconds_per_frame: int = None  # 프레임 추출 간격(초), interval 방식에서 사용
     downloader_api_key: str  # 유튜브 동영상 다운로드를 위한 API 키
+    extraction_type: str  # "interval" 또는 "keyframe"
 
 # 유튜브 URL인지 확인하는 함수
 def is_youtube_url(url: str) -> bool:
@@ -133,6 +135,46 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
 # 초를 hh:mm:ss 형식으로 변환하는 함수
 def seconds_to_timecode(seconds: int) -> str:
     return str(datetime.timedelta(seconds=seconds))
+
+# 키 프레임을 추출하는 함수
+def extract_keyframes_from_video(video_file: str, threshold: float = 0.6):
+    frames = []
+    timecodes = []
+
+    video = cv2.VideoCapture(video_file)
+    fps = video.get(cv2.CAP_PROP_FPS)
+    if not fps or fps == 0.0:
+        fps = 25  # 기본 FPS 설정
+    total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    success, prev_frame = video.read()
+    if not success:
+        raise ValueError("동영상을 읽는 데 실패했습니다.")
+
+    prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+    frames.append(base64.b64encode(cv2.imencode('.jpg', prev_frame)[1]).decode('utf-8'))
+    timecodes.append(seconds_to_timecode(0))
+
+    for curr_frame_idx in range(1, total_frames):
+        success, curr_frame = video.read()
+        if not success:
+            break
+
+        curr_gray = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
+
+        # 이전 프레임과 현재 프레임 간 차이를 계산 (구조적 유사도 또는 절대 차이)
+        frame_diff = cv2.absdiff(prev_gray, curr_gray)
+        non_zero_count = np.count_nonzero(frame_diff)
+        diff_ratio = non_zero_count / frame_diff.size
+
+        # 변화 비율이 임계값을 초과하면 키 프레임으로 선택
+        if diff_ratio > threshold:
+            frames.append(base64.b64encode(cv2.imencode('.jpg', curr_frame)[1]).decode('utf-8'))
+            timecodes.append(seconds_to_timecode(int(curr_frame_idx / fps)))
+            prev_gray = curr_gray  # 현재 프레임을 이전 프레임으로 업데이트
+
+    video.release()
+    return frames, timecodes
 
 # 지정된 간격으로 동영상에서 프레임을 추출하는 함수
 def extract_frames_from_video(video_file: str, seconds_per_frame: int):
@@ -266,7 +308,15 @@ async def process_video_frames(request: VideoFrameAnalysisRequest):
         raise HTTPException(status_code=500, detail=f"동영상 다운로드 중 오류 발생: {str(e)}")
 
     try:
-        frames_base64, timecodes = extract_frames_from_video(video_file, request.seconds_per_frame)
+        # 프레임 추출 방식에 따른 분기 처리
+        if request.extraction_type == "interval":
+            if request.seconds_per_frame is None:
+                raise HTTPException(status_code=400, detail="interval 방식에서는 seconds_per_frame 값이 필요합니다.")
+            frames_base64, timecodes = extract_frames_from_video(video_file, request.seconds_per_frame)
+        elif request.extraction_type == "keyframe":
+            frames_base64, timecodes = extract_keyframes_from_video(video_file)
+        else:
+            raise HTTPException(status_code=400, detail="유효하지 않은 extraction_type 값입니다. 'interval' 또는 'keyframe'이어야 합니다.")
     except Exception as e:
         # 동영상 파일 삭제
         if os.path.exists(video_file):
