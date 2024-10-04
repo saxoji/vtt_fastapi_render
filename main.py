@@ -50,14 +50,18 @@ if not os.path.exists(VIDEO_DIR):
 class VideoFrameAnalysisRequest(BaseModel):
     api_key: str
     auth_key: str
-    video_url: str  # 동영상 URL (유튜브 링크 포함)
+    video_url: str  # 동영상 URL (유튜브 또는 틱톡 링크 포함)
     seconds_per_frame: int = None  # 프레임 추출 간격(초), interval 방식에서 사용
-    downloader_api_key: str  # 유튜브 동영상 다운로드를 위한 API 키
+    downloader_api_key: str  # 동영상 다운로드를 위한 API 키
     extraction_type: str  # "interval" 또는 "keyframe"
 
 # 유튜브 URL인지 확인하는 함수
 def is_youtube_url(url: str) -> bool:
     return "youtube.com" in url or "youtu.be" in url
+
+# 틱톡 URL인지 확인하는 함수
+def is_tiktok_url(url: str) -> bool:
+    return "tiktok.com" in url
 
 # 유튜브 URL을 표준 형식으로 변환하는 함수
 def normalize_youtube_url(video_url: str) -> str:
@@ -119,6 +123,32 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
                         file.write(chunk)
         else:
             raise HTTPException(status_code=500, detail="적절한 MP4 파일을 찾을 수 없습니다.")
+
+    elif is_tiktok_url(video_url):
+        # 틱톡 동영상 처리
+        api_url = "https://zylalabs.com/api/4481/tiktok+video+retriever+api/5499/video+download"
+        api_headers = {
+            'Authorization': f'Bearer {downloader_api_key}'
+        }
+
+        response = requests.get(f"{api_url}?url={video_url}", headers=api_headers)
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
+
+        data = response.json()
+        if data.get('code') != 0:
+            raise HTTPException(status_code=500, detail="틱톡 동영상 다운로드 정보를 가져오는 데 실패했습니다.")
+
+        video_url = data['data']['wmplay']
+        video_response = requests.get(video_url, stream=True)
+        if video_response.status_code != 200:
+            raise HTTPException(status_code=500, detail="틱톡 동영상을 다운로드하는 데 실패했습니다.")
+
+        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        with open(video_file, 'wb') as file:
+            for chunk in video_response.iter_content(chunk_size=1024):
+                if chunk:
+                    file.write(chunk)
 
     else:
         # 일반 웹 동영상 파일 처리
