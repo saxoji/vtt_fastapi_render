@@ -137,7 +137,7 @@ def seconds_to_timecode(seconds: int) -> str:
     return str(datetime.timedelta(seconds=seconds))
 
 # 키 프레임을 추출하는 함수
-def extract_keyframes_from_video(video_file: str, threshold: float = 0.6):
+def extract_keyframes_from_video(video_file: str, seconds_per_frame: int, threshold: float = 0.6):
     frames = []
     timecodes = []
 
@@ -146,6 +146,8 @@ def extract_keyframes_from_video(video_file: str, threshold: float = 0.6):
     if not fps or fps == 0.0:
         fps = 25  # 기본 FPS 설정
     total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+    frames_to_skip = int(fps * seconds_per_frame)
+    curr_frame = 0
 
     success, prev_frame = video.read()
     if not success:
@@ -155,12 +157,14 @@ def extract_keyframes_from_video(video_file: str, threshold: float = 0.6):
     frames.append(base64.b64encode(cv2.imencode('.jpg', prev_frame)[1]).decode('utf-8'))
     timecodes.append(seconds_to_timecode(0))
 
-    for curr_frame_idx in range(1, total_frames):
-        success, curr_frame = video.read()
+    while curr_frame < total_frames - 1:
+        curr_frame += frames_to_skip
+        video.set(cv2.CAP_PROP_POS_FRAMES, curr_frame)
+        success, curr_frame_data = video.read()
         if not success:
             break
 
-        curr_gray = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
+        curr_gray = cv2.cvtColor(curr_frame_data, cv2.COLOR_BGR2GRAY)
 
         # 이전 프레임과 현재 프레임 간 차이를 계산 (구조적 유사도 또는 절대 차이)
         frame_diff = cv2.absdiff(prev_gray, curr_gray)
@@ -169,8 +173,8 @@ def extract_keyframes_from_video(video_file: str, threshold: float = 0.6):
 
         # 변화 비율이 임계값을 초과하면 키 프레임으로 선택
         if diff_ratio > threshold:
-            frames.append(base64.b64encode(cv2.imencode('.jpg', curr_frame)[1]).decode('utf-8'))
-            timecodes.append(seconds_to_timecode(int(curr_frame_idx / fps)))
+            frames.append(base64.b64encode(cv2.imencode('.jpg', curr_frame_data)[1]).decode('utf-8'))
+            timecodes.append(seconds_to_timecode(int(curr_frame / fps)))
             prev_gray = curr_gray  # 현재 프레임을 이전 프레임으로 업데이트
 
     video.release()
@@ -328,7 +332,9 @@ async def process_video_frames(request: VideoFrameAnalysisRequest):
                 raise HTTPException(status_code=400, detail="interval 방식에서는 seconds_per_frame 값이 필요합니다.")
             frames_base64, timecodes = extract_frames_from_video(video_file, request.seconds_per_frame)
         elif request.extraction_type == "keyframe":
-            frames_base64, timecodes = extract_keyframes_from_video(video_file)
+            if request.seconds_per_frame is None:
+                raise HTTPException(status_code=400, detail="keyframe 방식에서는 seconds_per_frame 값이 필요합니다.")
+            frames_base64, timecodes = extract_keyframes_from_video(video_file, request.seconds_per_frame)
         else:
             raise HTTPException(status_code=400, detail="유효하지 않은 extraction_type 값입니다. 'interval' 또는 'keyframe'이어야 합니다.")
     except Exception as e:
