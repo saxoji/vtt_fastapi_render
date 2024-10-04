@@ -174,6 +174,13 @@ def extract_keyframes_from_video(video_file: str, threshold: float = 0.6):
             prev_gray = curr_gray  # 현재 프레임을 이전 프레임으로 업데이트
 
     video.release()
+
+    # 최대 250개의 프레임만 유지
+    if len(frames) > 250:
+        step = len(frames) // 250
+        frames = frames[::step][:250]
+        timecodes = timecodes[::step][:250]
+
     return frames, timecodes
 
 # 지정된 간격으로 동영상에서 프레임을 추출하는 함수
@@ -205,6 +212,13 @@ def extract_frames_from_video(video_file: str, seconds_per_frame: int):
         curr_frame += frames_to_skip
 
     video.release()
+
+    # 최대 250개의 프레임만 유지
+    if len(frames) > 250:
+        step = len(frames) // 250
+        frames = frames[::step][:250]
+        timecodes = timecodes[::step][:250]
+
     return frames, timecodes
 
 # 여러 이미지를 GPT-4o API로 분석하는 함수
