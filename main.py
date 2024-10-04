@@ -71,6 +71,11 @@ def normalize_youtube_url(video_url: str) -> str:
         video_id = video_url.split('/')[-1].split('?')[0]
         return f"https://www.youtube.com/watch?v={video_id}"
     
+    # youtube.com/shorts 형식 처리
+    if "youtube.com/shorts" in video_url:
+        video_id = video_url.split('/')[-1].split('?')[0]
+        return f"https://www.youtube.com/watch?v={video_id}"
+    
     # youtube.com/watch 형식 (이미 표준화된 URL)
     if "youtube.com/watch" in video_url:
         return video_url.split('&')[0]  # 추가 쿼리 매개변수 제거
