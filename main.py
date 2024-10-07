@@ -14,14 +14,14 @@ import asyncio
 import aiohttp
 import openai
 
-# Swagger 헤더 설정
+# Swagger 검사 설정
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI Video Frame Analysis API ENGINE",
     "version": "100.100.100",
     "description": (
-        "## 비디오 프레임 분석 엔진 \n"
+        "## 비디오 프레임 분석 연처 \n"
         "- API Swagger \n"
-        "- 비디오에서 프레임을 추출하고 Linkbricks Horizon-Ai로 분석 \n"
+        "- 비디오에서 프레임을 출시하고 Linkbricks Horizon-Ai로 분석 \n"
         "- MP4, MOV, AVI, MKV, WMV, FLV, OGG, WebM \n"
         "- YOUTUBE, TIKTOK 지원"
     ),
@@ -51,7 +51,7 @@ class VideoFrameAnalysisRequest(BaseModel):
     api_key: str
     auth_key: str
     video_url: str  # 동영상 URL (유튜브 또는 틱톡 링크 포함)
-    seconds_per_frame: int = None  # 프레임 추출 간격(초), interval 방식에서 사용
+    seconds_per_frame: int = None  # 프레임 출시 간격(초), interval 방식에서 사용
     downloader_api_key: str  # 동영상 다운로드를 위한 API 키
     extraction_type: str  # "interval" 또는 "keyframe"
 
@@ -62,6 +62,10 @@ def is_youtube_url(url: str) -> bool:
 # 틱톡 URL인지 확인하는 함수
 def is_tiktok_url(url: str) -> bool:
     return "tiktok.com" in url
+
+# 인스타그램 URL인지 확인하는 함수
+def is_instagram_url(url: str) -> bool:
+    return "instagram.com/reel/" in url or "instagram.com/p/" in url
 
 # 유튜브 URL을 표준 형식으로 변환하는 함수
 def normalize_youtube_url(video_url: str) -> str:
@@ -86,6 +90,13 @@ def normalize_youtube_url(video_url: str) -> str:
     
     # 예상치 못한 형식 처리
     raise ValueError("유효하지 않은 유튜브 URL 형식입니다.")
+
+# 인스타그램 URL을 표준 형식으로 변환하는 함수
+def normalize_instagram_url(video_url: str) -> str:
+    if "/reel/" in video_url:
+        video_id = video_url.split("/reel/")[-1].split("/")[0]
+        return f"https://www.instagram.com/p/{video_id}/"
+    return video_url
 
 # URL로부터 동영상을 다운로드하는 함수
 def download_video(video_url: str, downloader_api_key: str) -> str:
@@ -150,6 +161,34 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
                 if chunk:
                     file.write(chunk)
 
+    elif is_instagram_url(video_url):
+        # 인스타그램 동영상 처리
+        normalized_url = normalize_instagram_url(video_url)
+        api_url = f"https://zylalabs.com/api/1943/instagram+reels+downloader+api/2944/reel+downloader?url={normalized_url}"
+        headers = {
+            'Authorization': f'Bearer {downloader_api_key}'
+        }
+
+        response = requests.get(api_url, headers=headers)
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
+
+        data = response.json()
+        video_url = data.get("video")
+        caption = data.get("caption", "")
+
+        if not video_url:
+            raise HTTPException(status_code=500, detail="적절한 MP4 파일을 찾을 수 없습니다.")
+
+        video_response = requests.get(video_url, stream=True)
+        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        with open(video_file, 'wb') as file:
+            for chunk in video_response.iter_content(chunk_size=1024):
+                if chunk:
+                    file.write(chunk)
+
+        return video_file, caption
+
     else:
         # 일반 웹 동영상 파일 처리
         video_response = requests.get(video_url, stream=True)
@@ -165,7 +204,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
                 if chunk:
                     file.write(chunk)
 
-    return video_file
+    return video_file, None
 
 # 초를 hh:mm:ss 형식으로 변환하는 함수
 def seconds_to_timecode(seconds: int) -> str:
@@ -353,15 +392,17 @@ async def process_video_frames(request: VideoFrameAnalysisRequest):
         # 유튜브 URL을 표준화 처리
         if is_youtube_url(request.video_url):
             normalized_video_url = normalize_youtube_url(request.video_url)
+        elif is_instagram_url(request.video_url):
+            normalized_video_url = normalize_instagram_url(request.video_url)
         else:
             normalized_video_url = request.video_url
 
-        video_file = download_video(normalized_video_url, request.downloader_api_key)
+        video_file, caption = download_video(normalized_video_url, request.downloader_api_key)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"동영상 다운로드 중 오류 발생: {str(e)}")
 
     try:
-        # 프레임 추출 방식에 따른 분기 처리
+        # 프레임 출시 방식에 따라 분기 처리
         if request.extraction_type == "interval":
             if request.seconds_per_frame is None:
                 raise HTTPException(status_code=400, detail="interval 방식에서는 seconds_per_frame 값이 필요합니다.")
@@ -376,7 +417,7 @@ async def process_video_frames(request: VideoFrameAnalysisRequest):
         # 동영상 파일 삭제
         if os.path.exists(video_file):
             os.remove(video_file)
-        raise HTTPException(status_code=500, detail=f"프레임 추출 중 오류 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"프레임 출시 중 오류 발생: {str(e)}")
 
     try:
         # 동영상 파일 삭제
@@ -385,6 +426,11 @@ async def process_video_frames(request: VideoFrameAnalysisRequest):
 
         analyzed_descriptions = await analyze_frames_with_gpt4(request.api_key, frames_base64, timecodes)
         summary_text = await summarize_descriptions(request.api_key, analyzed_descriptions)
+
+        # Instagram 서적 추가
+        if caption:
+            summary_text = f"[caption]: {caption}\n" + summary_text
+
     except Exception as e:
         # 필요한 경우 추가로 정리 작업 수행
         raise HTTPException(status_code=500, detail=f"프레임 분석 중 오류 발생: {str(e)}")
