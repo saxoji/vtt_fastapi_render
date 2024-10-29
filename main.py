@@ -19,7 +19,7 @@ SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI Video Frame Analysis API ENGINE",
     "version": "100.100.100",
     "description": (
-        "## 비디오 프레임 분석 연처 \n"
+        "## 비디오 프레임 분석 API 엔진 \n"
         "- API Swagger \n"
         "- 비디오에서 프레임을 출시하고 Linkbricks Horizon-Ai로 분석 \n"
         "- MP4, MOV, AVI, MKV, WMV, FLV, OGG, WebM \n"
