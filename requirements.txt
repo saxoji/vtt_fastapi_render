@@ -6,7 +6,7 @@ pandas
 pydantic
 numpy
 yt-dlp
-moviepy
+moviepy>=2.0.0
 pytube
 requests
 python-multipart
