@@ -161,7 +161,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         if data.get('code') != 0:
             raise HTTPException(status_code=500, detail="틱톡 동영상 다운로드 정보를 가져오는 데 실패했습니다.")
 
-        video_url = data['data']['wmplay']
+        video_url = data['data']['play']
         video_response = requests.get(video_url, stream=True)
         if video_response.status_code != 200:
             raise HTTPException(status_code=500, detail="틱톡 동영상을 다운로드하는 데 실패했습니다.")
