@@ -162,22 +162,32 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         if data.get('code') != 0:
             raise HTTPException(status_code=500, detail="TikTok 동영상 다운로드 정보를 처리하는 중 오류가 발생했습니다.")
     
-        # 다운로드 URL 추출
+        # 다운로드 URL 선택
         video_play_url = data['data'].get('play')  # 워터마크 없는 URL
         if not video_play_url:
-            raise HTTPException(status_code=500, detail="TikTok 동영상 URL을 찾을 수 없습니다.")
+            video_play_url = data['data'].get('wmplay')  # 워터마크 있는 URL
+            if not video_play_url:
+                raise HTTPException(status_code=500, detail="TikTok 동영상 URL을 찾을 수 없습니다.")
     
         # 동영상 파일 다운로드
-        video_response = requests.get(video_play_url, stream=True)
-        if video_response.status_code != 200:
-            raise HTTPException(status_code=500, detail="TikTok 동영상을 다운로드하는 중 오류가 발생했습니다.")
+        try:
+            video_response = requests.get(video_play_url, stream=True, timeout=30)  # Timeout 설정
+            if video_response.status_code != 200:
+                raise HTTPException(status_code=500, detail="TikTok 동영상을 다운로드하는 중 오류가 발생했습니다.")
+        except requests.exceptions.RequestException as e:
+            raise HTTPException(status_code=500, detail=f"TikTok 동영상 다운로드 요청 중 오류 발생: {str(e)}")
     
         # 동영상 파일 저장
         video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-        with open(video_file, 'wb') as file:
-            for chunk in video_response.iter_content(chunk_size=1024):
-                if chunk:
-                    file.write(chunk)
+        try:
+            with open(video_file, 'wb') as file:
+                for chunk in video_response.iter_content(chunk_size=1024):
+                    if chunk:
+                        file.write(chunk)
+        except IOError as e:
+            raise HTTPException(status_code=500, detail=f"파일 저장 중 오류 발생: {str(e)}")
+    
+        return video_file, None
 
 
     elif is_instagram_url(video_url):
