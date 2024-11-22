@@ -3,8 +3,10 @@ aiofiles
 aiohttp
 openai
 pydantic
+numpy
 yt-dlp
 moviepy
 pytube
 requests
-opencv-contrib-python
+python-multipart
+opencv-python
