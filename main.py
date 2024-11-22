@@ -147,101 +147,114 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             raise HTTPException(status_code=500, detail="적절한 MP4 파일을 찾을 수 없습니다.")
 
     elif is_tiktok_url(video_url):
-        # TikTok 동영상 처리
-        api_url = "https://zylalabs.com/api/4481/tiktok+video+retriever+api/5499/video+download"
-        api_headers = {
-            'Authorization': f'Bearer {downloader_api_key}'
-        }
-        
-        # API 호출
-        response = requests.get(f"{api_url}?url={video_url}", headers=api_headers)
-        if response.status_code != 200:
-            raise HTTPException(status_code=500, detail="API로부터 TikTok 동영상 정보를 가져오는 데 실패했습니다.")
-        
-        # API 응답 파싱
-        data = response.json()
-        print("API Response:", json.dumps(data, indent=4))  # 응답 디버깅
-        
-        # 'data' 키에서 정보 가져오기
-        response_data = data.get('data')
-        if not response_data:
-            raise HTTPException(status_code=500, detail="TikTok API 응답에서 데이터를 찾을 수 없습니다.")
-        
-        # 다운로드 URL 확인
-        video_play_url = response_data.get('play')  # 워터마크 없는 URL
-        if not video_play_url:
-            video_play_url = response_data.get('wmplay')  # 워터마크 있는 URL
-            if not video_play_url:
-                raise HTTPException(status_code=500, detail="TikTok 동영상 URL을 찾을 수 없습니다.")
-        
-        print(f"Downloading from URL: {video_play_url}")
-        
-        # 세션 생성 및 설정
-        session = requests.Session()
-        
-        # 향상된 헤더 설정
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'video/webm,video/mp4,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Range': 'bytes=0-',
-            'Connection': 'keep-alive',
-            'Referer': 'https://www.tiktok.com/',
-            'Sec-Fetch-Dest': 'video',
-            'Sec-Fetch-Mode': 'no-cors',
-            'Sec-Fetch-Site': 'cross-site',
-            'Pragma': 'no-cache',
-            'Cache-Control': 'no-cache',
-        }
-        
-        # 캐시 우회를 위한 랜덤 쿼리 파라미터 추가
-        if '?' in video_play_url:
-            video_play_url += f'&_r={uuid.uuid4().hex}'
-        else:
-            video_play_url += f'?_r={uuid.uuid4().hex}'
-        
         try:
-            # HEAD 요청으로 URL 유효성 확인
-            head_response = session.head(
-                video_play_url, 
-                headers=headers, 
-                allow_redirects=True, 
-                timeout=30
-            )
+            # TikTok 동영상 처리
+            api_url = "https://zylalabs.com/api/4481/tiktok+video+retriever+api/5499/video+download"
+            api_headers = {
+                'Authorization': f'Bearer {downloader_api_key}'
+            }
             
-            if head_response.status_code == 403:
-                # 403 에러 시 워터마크 버전 시도
-                video_play_url = response_data.get('wmplay', '')
-                if not video_play_url:
-                    raise HTTPException(status_code=500, detail="모든 다운로드 URL에 접근이 거부되었습니다.")
+            # API 호출
+            response = requests.get(f"{api_url}?url={video_url}", headers=api_headers)
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail="API로부터 TikTok 동영상 정보를 가져오는 데 실패했습니다.")
             
-            # 실제 비디오 다운로드
-            video_response = session.get(
-                video_play_url,
-                headers=headers,
-                stream=True,
-                timeout=30,
-                allow_redirects=True
-            )
+            # API 응답 파싱
+            data = response.json()
+            print("API Response:", json.dumps(data, indent=4))
             
-            if video_response.status_code != 200:
-                print(f"Failed to download video. Status code: {video_response.status_code}")
-                raise HTTPException(status_code=500, detail=f"다운로드 실패. 상태 코드: {video_response.status_code}")
+            # 'data' 키에서 정보 가져오기
+            response_data = data.get('data')
+            if not response_data:
+                raise HTTPException(status_code=500, detail="TikTok API 응답에서 데이터를 찾을 수 없습니다.")
             
-            # 동영상 파일 저장
-            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-            print(f"Saving video to: {video_file}")
+            # 다운로드 URL 확인 및 선택
+            video_urls = [
+                response_data.get('play'),  # 워터마크 없는 URL
+                response_data.get('wmplay'),  # 워터마크 있는 URL
+            ]
             
-            with open(video_file, 'wb') as file:
-                for chunk in video_response.iter_content(chunk_size=8192):
-                    if chunk:
-                        file.write(chunk)
+            # 세션 설정
+            session = requests.Session()
+            retry_count = 3
+            success = False
             
-            return video_file, None
+            # 향상된 헤더 설정
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Language': 'ko,en-US;q=0.9,en;q=0.8',
+                'Connection': 'keep-alive',
+                'Range': 'bytes=0-',
+                'Referer': 'https://www.tiktok.com/',
+                'Sec-Fetch-Dest': 'video',
+                'Sec-Fetch-Mode': 'no-cors',
+                'Sec-Fetch-Site': 'cross-site',
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache',
+                'sec-ch-ua': '"Google Chrome";v="119", "Chromium";v="119", "Not?A_Brand";v="24"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+            }
             
-        except requests.exceptions.RequestException as e:
-            print(f"Download error: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"다운로드 중 오류 발생: {str(e)}")
+            # 모든 가능한 URL에 대해 시도
+            for video_url in video_urls:
+                if not video_url:
+                    continue
+                    
+                print(f"Attempting download from URL: {video_url}")
+                
+                for attempt in range(retry_count):
+                    try:
+                        # 캐시 우회를 위한 고유 식별자 추가
+                        modified_url = video_url
+                        if '?' in modified_url:
+                            modified_url += f'&_t={int(time.time())}&_r={uuid.uuid4().hex}'
+                        else:
+                            modified_url += f'?_t={int(time.time())}&_r={uuid.uuid4().hex}'
+                        
+                        # HEAD 요청으로 URL 유효성 확인
+                        head_response = session.head(
+                            modified_url,
+                            headers=headers,
+                            allow_redirects=True,
+                            timeout=30
+                        )
+                        
+                        if head_response.status_code == 200:
+                            # 실제 비디오 다운로드
+                            video_response = session.get(
+                                modified_url,
+                                headers=headers,
+                                stream=True,
+                                timeout=30,
+                                allow_redirects=True,
+                                verify=False  # SSL 인증서 검증 비활성화
+                            )
+                            
+                            if video_response.status_code == 200:
+                                # 동영상 파일 저장
+                                video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+                                print(f"Saving video to: {video_file}")
+                                
+                                with open(video_file, 'wb') as file:
+                                    for chunk in video_response.iter_content(chunk_size=8192):
+                                        if chunk:
+                                            file.write(chunk)
+                                
+                                success = True
+                                return video_file, None
+                                
+                    except requests.exceptions.RequestException as e:
+                        print(f"Download attempt {attempt + 1} failed: {str(e)}")
+                        if attempt == retry_count - 1:
+                            print(f"All retry attempts failed for URL: {video_url}")
+                    
+                    time.sleep(1)  # 재시도 전 대기
+            
+            if not success:
+                raise HTTPException(status_code=500, detail="모든 다운로드 시도가 실패했습니다.")
+                
         except Exception as e:
             print(f"Unexpected error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"예상치 못한 오류 발생: {str(e)}")
