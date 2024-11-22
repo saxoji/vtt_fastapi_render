@@ -159,6 +159,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             raise HTTPException(status_code=500, detail="API로부터 TikTok 동영상 정보를 가져오는 데 실패했습니다.")
     
         data = response.json()
+        print("API Response:", json.dumps(data, indent=4))  # 디버깅용 출력
         if data.get('code') != 0:
             raise HTTPException(status_code=500, detail="TikTok 동영상 다운로드 정보를 처리하는 중 오류가 발생했습니다.")
     
@@ -169,22 +170,35 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             if not video_play_url:
                 raise HTTPException(status_code=500, detail="TikTok 동영상 URL을 찾을 수 없습니다.")
     
+        print(f"Downloading from URL: {video_play_url}")
+    
+        # 요청 헤더에 User-Agent와 Referer 추가
+        download_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Referer": "https://www.tiktok.com/"
+        }
+    
         # 동영상 파일 다운로드
         try:
-            video_response = requests.get(video_play_url, stream=True, timeout=30)  # Timeout 설정
+            video_response = requests.get(video_play_url, headers=download_headers, stream=True, timeout=30)
             if video_response.status_code != 200:
+                print(f"Failed to download video. Status code: {video_response.status_code}")
                 raise HTTPException(status_code=500, detail="TikTok 동영상을 다운로드하는 중 오류가 발생했습니다.")
         except requests.exceptions.RequestException as e:
+            print(f"Download request error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"TikTok 동영상 다운로드 요청 중 오류 발생: {str(e)}")
     
         # 동영상 파일 저장
         video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        print(f"Saving video to: {video_file}")
+    
         try:
             with open(video_file, 'wb') as file:
                 for chunk in video_response.iter_content(chunk_size=1024):
                     if chunk:
                         file.write(chunk)
         except IOError as e:
+            print(f"File write error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"파일 저장 중 오류 발생: {str(e)}")
     
         return video_file, None
