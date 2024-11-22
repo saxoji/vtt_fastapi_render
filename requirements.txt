@@ -2,6 +2,7 @@ fastapi[all]
 aiofiles
 aiohttp
 openai
+pandas
 pydantic
 numpy
 yt-dlp
