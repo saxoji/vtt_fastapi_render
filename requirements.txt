@@ -6,4 +6,5 @@ pydantic
 yt-dlp
 moviepy
 pytube
+requests
 opencv-contrib-python
