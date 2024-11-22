@@ -9,4 +9,4 @@ moviepy
 pytube
 requests
 python-multipart
-opencv-python
+opencv-contrib-python
