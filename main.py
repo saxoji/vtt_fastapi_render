@@ -13,6 +13,7 @@ from moviepy.editor import VideoFileClip
 import asyncio
 import aiohttp
 import openai
+import time
 
 # Swagger 검사 설정
 SWAGGER_HEADERS = {
