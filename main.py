@@ -158,27 +158,31 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         if response.status_code != 200:
             raise HTTPException(status_code=500, detail="API로부터 TikTok 동영상 정보를 가져오는 데 실패했습니다.")
     
+        # API 응답 파싱
         data = response.json()
-        print("API Response:", json.dumps(data, indent=4))  # 디버깅용 출력
-        if data.get('code') != 0:
-            raise HTTPException(status_code=500, detail="TikTok 동영상 다운로드 정보를 처리하는 중 오류가 발생했습니다.")
+        print("API Response:", json.dumps(data, indent=4))  # 응답 디버깅
     
-        # 다운로드 URL 선택
-        video_play_url = data['data'].get('play')  # 워터마크 없는 URL
+        # 'data' 키에서 정보 가져오기
+        response_data = data.get('data')
+        if not response_data:
+            raise HTTPException(status_code=500, detail="TikTok API 응답에서 데이터를 찾을 수 없습니다.")
+    
+        # 다운로드 URL 확인
+        video_play_url = response_data.get('play')  # 워터마크 없는 URL
         if not video_play_url:
-            video_play_url = data['data'].get('wmplay')  # 워터마크 있는 URL
+            video_play_url = response_data.get('wmplay')  # 워터마크 있는 URL
             if not video_play_url:
                 raise HTTPException(status_code=500, detail="TikTok 동영상 URL을 찾을 수 없습니다.")
     
         print(f"Downloading from URL: {video_play_url}")
     
-        # 요청 헤더에 User-Agent와 Referer 추가
+        # 요청 헤더 설정
         download_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
             "Referer": "https://www.tiktok.com/"
         }
     
-        # 동영상 파일 다운로드
+        # 동영상 다운로드
         try:
             video_response = requests.get(video_play_url, headers=download_headers, stream=True, timeout=30)
             if video_response.status_code != 200:
