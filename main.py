@@ -103,8 +103,7 @@ def normalize_instagram_url(video_url: str) -> str:
 def download_video(video_url: str, downloader_api_key: str) -> str:
     if is_youtube_url(video_url):
         # 유튜브 동영상 처리
-        video_id = video_url.split('v=')[-1] if 'v=' in video_url else video_url.split('/')[-1]
-        api_url = f"https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/6812/youtube+downloader?videoId={video_id}"
+        api_url = f"https://zylalabs.com/api/5619/save+video+api/7306/save+url?url={video_url}"
         api_headers = {
             'Authorization': f'Bearer {downloader_api_key}'
         }
@@ -115,26 +114,32 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
 
         data = response.json()
+        medias = data.get('medias', [])
 
-        video_items = data.get('videos', {}).get('items', [])
-        print("video_items:", video_items)  # 디버깅용 로그
-
-        if not video_items:
+        if not medias:
             print("동영상 정보 없음")
             raise HTTPException(status_code=500, detail="동영상 정보를 찾을 수 없습니다.")
 
-        # 가능한 최고 화질의 MP4 동영상 URL 선택 (hasAudio 상관없이)
+        # 가능한 최고 화질의 MP4 동영상 URL 선택
         highest_resolution = 0
         highest_mp4_url = None
 
-        for item in video_items:
-            if item.get('mimeType', '').startswith('video/mp4'):
-                width = item.get('width', 0)
-                height = item.get('height', 0)
-                resolution = width * height
+        for media in medias:
+            # mp4 형식이고, 오디오가 아닌 비디오 중에서 최고 해상도 선택
+            if media.get('extension') == 'mp4' and media.get('type') == 'video' and not media.get('is_audio', False):
+                quality_str = media.get('quality', '')
+                # 해상도 정보 추출 (예: '1080p', '720p' 등)
+                if quality_str.endswith('p'):
+                    try:
+                        resolution = int(quality_str[:-1])
+                    except ValueError:
+                        resolution = 0
+                else:
+                    resolution = 0
+
                 if resolution > highest_resolution:
                     highest_resolution = resolution
-                    highest_mp4_url = item.get('url')
+                    highest_mp4_url = media.get('url')
 
         if highest_mp4_url is None:
             print("MP4 파일을 찾을 수 없음")
@@ -160,7 +165,6 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         except Exception as e:
             print("파일 쓰기 오류:", e)
             raise HTTPException(status_code=500, detail=f"파일 저장 중 오류 발생: {e}")
-
 
     elif is_tiktok_url(video_url):
         api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
