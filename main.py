@@ -111,6 +111,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
 
         response = requests.get(api_url, headers=api_headers)
         if response.status_code != 200:
+            print("API 응답 에러:", response.status_code, response.text)
             raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
 
         data = response.json()
@@ -119,14 +120,15 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         print("video_items:", video_items)  # 디버깅용 로그
 
         if not video_items:
+            print("동영상 정보 없음")
             raise HTTPException(status_code=500, detail="동영상 정보를 찾을 수 없습니다.")
 
+        # 가능한 최고 화질의 MP4 동영상 URL 선택 (hasAudio 상관없이)
         highest_resolution = 0
         highest_mp4_url = None
 
-        # hasAudio가 True인 mp4만 선택
         for item in video_items:
-            if item.get('mimeType', '').startswith('video/mp4') and item.get('hasAudio', False):
+            if item.get('mimeType', '').startswith('video/mp4'):
                 width = item.get('width', 0)
                 height = item.get('height', 0)
                 resolution = width * height
@@ -134,19 +136,30 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
                     highest_resolution = resolution
                     highest_mp4_url = item.get('url')
 
-        if highest_mp4_url:
-            video_response = requests.get(highest_mp4_url, stream=True)
-            if video_response.status_code != 200:
-                raise HTTPException(status_code=500, detail="동영상을 다운로드하는 데 실패했습니다.")
+        if highest_mp4_url is None:
+            print("MP4 파일을 찾을 수 없음")
+            raise HTTPException(status_code=500, detail="적절한 MP4 파일을 찾을 수 없습니다.")
 
-            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        print("선택된 고해상도 MP4 URL:", highest_mp4_url)
+        video_response = requests.get(highest_mp4_url, stream=True)
+        if video_response.status_code != 200:
+            print("동영상 다운로드 실패:", video_response.status_code)
+            raise HTTPException(status_code=500, detail="동영상을 다운로드하는 데 실패했습니다.")
+
+        # VIDEO_DIR이 없다면 생성
+        os.makedirs(VIDEO_DIR, exist_ok=True)
+
+        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        print("다운로드한 동영상 저장 경로:", video_file)
+
+        try:
             with open(video_file, 'wb') as file:
                 for chunk in video_response.iter_content(chunk_size=1024):
                     if chunk:
                         file.write(chunk)
-            return video_file, None
-        else:
-            raise HTTPException(status_code=500, detail="적절한 MP4 파일(오디오 포함)을 찾을 수 없습니다.")
+        except Exception as e:
+            print("파일 쓰기 오류:", e)
+            raise HTTPException(status_code=500, detail=f"파일 저장 중 오류 발생: {e}")
 
 
     elif is_tiktok_url(video_url):
