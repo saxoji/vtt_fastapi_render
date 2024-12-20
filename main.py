@@ -123,7 +123,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             print("동영상 정보 없음")
             raise HTTPException(status_code=500, detail="동영상 정보를 찾을 수 없습니다.")
 
-        # 가능한 최고 화질의 MP4 동영상 URL 선택 (hasAudio 상관없이)
+        # 가능한 최고 화질의 MP4 동영상 URL 선택
         highest_resolution = 0
         highest_mp4_url = None
 
@@ -141,9 +141,25 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             raise HTTPException(status_code=500, detail="적절한 MP4 파일을 찾을 수 없습니다.")
 
         print("선택된 고해상도 MP4 URL:", highest_mp4_url)
-        video_response = requests.get(highest_mp4_url, stream=True)
+
+        # &range=0- 파라미터 제거 (있다면)
+        if '&range=0-' in highest_mp4_url:
+            highest_mp4_url = highest_mp4_url.replace('&range=0-', '')
+
+        # 요청 헤더에 User-Agent, Referer, Range 등 추가
+        download_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.youtube.com/",
+            "Range": "bytes=0-",
+            "Connection": "keep-alive"
+        }
+
+        video_response = requests.get(highest_mp4_url, headers=download_headers, stream=True, allow_redirects=True)
+        print("video_response status:", video_response.status_code)
         if video_response.status_code != 200:
-            print("동영상 다운로드 실패:", video_response.status_code)
+            print("동영상 다운로드 실패:", video_response.status_code, video_response.text)
             raise HTTPException(status_code=500, detail="동영상을 다운로드하는 데 실패했습니다.")
 
         # VIDEO_DIR이 없다면 생성
