@@ -115,19 +115,18 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
 
         data = response.json()
 
-        # 'videos' 아래 'items' 리스트에서 다운로드 URL 정보 추출
         video_items = data.get('videos', {}).get('items', [])
         print("video_items:", video_items)  # 디버깅용 로그
-        
+
         if not video_items:
             raise HTTPException(status_code=500, detail="동영상 정보를 찾을 수 없습니다.")
 
-        # 가능한 최고 화질의 동영상 URL 선택
         highest_resolution = 0
         highest_mp4_url = None
 
+        # hasAudio가 True인 mp4만 선택
         for item in video_items:
-            if item.get('mimeType', '').startswith('video/mp4'):
+            if item.get('mimeType', '').startswith('video/mp4') and item.get('hasAudio', False):
                 width = item.get('width', 0)
                 height = item.get('height', 0)
                 resolution = width * height
@@ -147,7 +146,8 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
                         file.write(chunk)
             return video_file, None
         else:
-            raise HTTPException(status_code=500, detail="적절한 MP4 파일을 찾을 수 없습니다.")
+            raise HTTPException(status_code=500, detail="적절한 MP4 파일(오디오 포함)을 찾을 수 없습니다.")
+
 
     elif is_tiktok_url(video_url):
         api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
