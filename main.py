@@ -115,12 +115,17 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
     
         data = response.json()
         
-        # errorId가 Success인지 확인
-        if data.get('errorId') != 'Success':
+        # videos 객체가 있는지 확인
+        videos_data = data.get('videos')
+        if not videos_data:
+            raise HTTPException(status_code=500, detail="동영상 정보를 찾을 수 없습니다.")
+        
+        # videos 객체의 errorId가 Success인지 확인
+        if videos_data.get('errorId') != 'Success':
             raise HTTPException(status_code=500, detail="동영상 정보를 가져오는데 실패했습니다.")
     
-        # items 리스트에서 mp4 형식의 최고 화질 동영상 URL 선택
-        video_items = data.get('items', [])
+        # videos.items 배열에서 비디오 정보 가져오기
+        video_items = videos_data.get('items', [])
         if not video_items:
             raise HTTPException(status_code=500, detail="동영상 정보를 찾을 수 없습니다.")
     
