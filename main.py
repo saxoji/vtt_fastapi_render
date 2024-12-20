@@ -117,6 +117,8 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
 
         # 'videos' 아래 'items' 리스트에서 다운로드 URL 정보 추출
         video_items = data.get('videos', {}).get('items', [])
+        print("video_items:", video_items)  # 디버깅용 로그
+        
         if not video_items:
             raise HTTPException(status_code=500, detail="동영상 정보를 찾을 수 없습니다.")
 
