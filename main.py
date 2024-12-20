@@ -108,22 +108,25 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         api_headers = {
             'Authorization': f'Bearer {downloader_api_key}'
         }
-
+    
         response = requests.get(api_url, headers=api_headers)
         if response.status_code != 200:
             raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
-
+    
         data = response.json()
-
-        # 'videos' -> 'items' 리스트에서 'url' 추출
-        video_items = data.get('videos', {}).get('items', [])
+        
+        # errorId가 Success인지 확인
+        if data.get('errorId') != 'Success':
+            raise HTTPException(status_code=500, detail="동영상 정보를 가져오는데 실패했습니다.")
+    
+        # items 리스트에서 mp4 형식의 최고 화질 동영상 URL 선택
+        video_items = data.get('items', [])
         if not video_items:
             raise HTTPException(status_code=500, detail="동영상 정보를 찾을 수 없습니다.")
-
-        # 가능한 최고 화질의 동영상 URL 선택
+    
         highest_resolution = 0
         highest_mp4_url = None
-
+    
         for item in video_items:
             if item.get('mimeType', '').startswith('video/mp4'):
                 width = item.get('width', 0)
@@ -132,12 +135,12 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
                 if resolution > highest_resolution:
                     highest_resolution = resolution
                     highest_mp4_url = item.get('url')
-
+    
         if highest_mp4_url:
             video_response = requests.get(highest_mp4_url, stream=True)
             if video_response.status_code != 200:
                 raise HTTPException(status_code=500, detail="동영상을 다운로드하는 데 실패했습니다.")
-
+    
             video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
             with open(video_file, 'wb') as file:
                 for chunk in video_response.iter_content(chunk_size=1024):
