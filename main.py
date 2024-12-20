@@ -147,7 +147,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
 
         print("선택된 고해상도 MP4 URL:", highest_mp4_url)
 
-        headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"}
+        headers = {"User-Agent": "python-requests/2.32.3"}
         video_response = requests.get(highest_mp4_url, headers=headers, stream=True)
         if video_response.status_code != 200:
             print("동영상 다운로드 실패:", video_response.status_code)
