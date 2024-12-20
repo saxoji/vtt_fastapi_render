@@ -146,7 +146,9 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             raise HTTPException(status_code=500, detail="적절한 MP4 파일을 찾을 수 없습니다.")
 
         print("선택된 고해상도 MP4 URL:", highest_mp4_url)
-        video_response = requests.get(highest_mp4_url, stream=True)
+
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"}
+        video_response = requests.get(highest_mp4_url, headers=headers, stream=True)
         if video_response.status_code != 200:
             print("동영상 다운로드 실패:", video_response.status_code)
             raise HTTPException(status_code=500, detail="동영상을 다운로드하는 데 실패했습니다.")
