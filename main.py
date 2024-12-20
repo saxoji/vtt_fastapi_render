@@ -126,7 +126,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
 
         for media in medias:
             # mp4 형식이고, 오디오가 아닌 비디오 중에서 최고 해상도 선택
-            if media.get('extension') == 'mp4' and media.get('type') == 'video' and media.get('is_audio', True):
+            if media.get('extension') == 'mp4' and media.get('type') == 'video' and not media.get('is_audio', False):
                 quality_str = media.get('quality', '')
                 # 해상도 정보 추출 (예: '1080p', '720p' 등)
                 if quality_str.endswith('p'):
