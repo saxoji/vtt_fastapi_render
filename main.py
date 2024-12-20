@@ -111,7 +111,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         response = requests.get(api_url, headers=api_headers)
         if response.status_code != 200:
             print("API 응답 에러:", response.status_code, response.text)
-            raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
+            raise HTTPException(status_code=response.status_code, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
 
         data = response.json()
         medias = data.get('medias', [])
@@ -151,7 +151,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         video_response = requests.get(highest_mp4_url, headers=headers, stream=True)
         if video_response.status_code != 200:
             print("동영상 다운로드 실패:", video_response.status_code)
-            raise HTTPException(status_code=500, detail="동영상을 다운로드하는 데 실패했습니다.")
+            raise HTTPException(status_code=video_response.status_code, detail="동영상을 다운로드하는 데 실패했습니다.")
 
         # VIDEO_DIR이 없다면 생성
         os.makedirs(VIDEO_DIR, exist_ok=True)
