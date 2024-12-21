@@ -115,6 +115,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
                 'merge_output_format': 'mp4',
                 'outtmpl': os.path.join(VIDEO_DIR, f'{uuid.uuid4()}.%(ext)s'),  # 출력 파일 이름 설정
                 'cookiefile': cookie_file_path,  # 임시 쿠키 파일 경로 전달
+                "verbose": True,  # Verbose 모드 활성화
                 'quiet': True,
                 'no_warnings': True,
             }
