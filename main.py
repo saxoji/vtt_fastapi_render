@@ -16,6 +16,7 @@ import openai
 import time
 import tempfile
 import yt_dlp
+import textwrap
 
 # Swagger 검사 설정
 SWAGGER_HEADERS = {
@@ -127,9 +128,13 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             .youtube.com	TRUE	/	TRUE	1769340729	PREF	f6=40000000&f7=4100&tz=Asia.Seoul&f5=20000
             """
             
-            with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_cookie_file:
-                temp_cookie_file.write(cookie_string)
-                temp_cookie_path = temp_cookie_file.name
+            if cookie_string:
+                # 들여쓰기 제거
+                dedented_cookie = textwrap.dedent(cookie_string).strip()
+                
+                with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_cookie_file:
+                    temp_cookie_file.write(dedented_cookie)
+                    temp_cookie_path = temp_cookie_file.name
             
             
             # yt-dlp 옵션 설정
