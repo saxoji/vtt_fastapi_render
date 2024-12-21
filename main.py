@@ -101,7 +101,7 @@ def normalize_instagram_url(video_url: str) -> str:
     return video_url
 
 # URL로부터 동영상을 다운로드하는 함수
-def download_video(video_url: str, downloader_api_key: str) -> str:
+async def download_video(video_url: str, downloader_api_key: str) -> str:
     if is_youtube_url(video_url):
         # 유튜브 동영상 처리
         api_url = f"https://zylalabs.com/api/5619/save+video+api/7306/save+url?url={video_url}"
@@ -146,26 +146,26 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
 
         print("선택된 고해상도 MP4 URL:", highest_mp4_url)
 
-        # Headless 브라우저 사용
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            # 필요한 경우 사용자 에이전트를 설정할 수도 있음
-            # page.set_extra_http_headers({"User-Agent": "Mozilla/5.0 ..."})
+        # 비동기 headless 브라우저 사용
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
 
-            # headless 브라우저 환경에서 동영상 URL 요청
-            vid_response = page.request.get(highest_mp4_url)
+            # 필요한 경우 User-Agent 세팅 가능
+            # await page.set_extra_http_headers({"User-Agent": "Mozilla/5.0 ..."})
+
+            vid_response = await page.request.get(highest_mp4_url)
             if vid_response.status != 200:
-                browser.close()
+                await browser.close()
                 raise HTTPException(status_code=500, detail="동영상을 다운로드하는 데 실패했습니다.")
 
-            video_content = vid_response.body()
+            video_content = await vid_response.body()
             os.makedirs(VIDEO_DIR, exist_ok=True)
             video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
             with open(video_file, 'wb') as file:
                 file.write(video_content)
 
-            browser.close()
+            await browser.close()
 
     elif is_tiktok_url(video_url):
         api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
