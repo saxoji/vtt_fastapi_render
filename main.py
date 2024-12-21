@@ -14,7 +14,6 @@ import asyncio
 import aiohttp
 import openai
 import time
-from playwright.async_api import async_playwright
 
 # Swagger 검사 설정
 SWAGGER_HEADERS = {
@@ -101,7 +100,7 @@ def normalize_instagram_url(video_url: str) -> str:
     return video_url
 
 # URL로부터 동영상을 다운로드하는 함수
-async def download_video(video_url: str, downloader_api_key: str) -> str:
+def download_video(video_url: str, downloader_api_key: str) -> str:
     if is_youtube_url(video_url):
         # 유튜브 동영상 처리
         api_url = f"https://zylalabs.com/api/5619/save+video+api/7306/save+url?url={video_url}"
@@ -112,7 +111,7 @@ async def download_video(video_url: str, downloader_api_key: str) -> str:
         response = requests.get(api_url, headers=api_headers)
         if response.status_code != 200:
             print("API 응답 에러:", response.status_code, response.text)
-            raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
+            raise HTTPException(status_code=response.status_code, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
 
         data = response.json()
         medias = data.get('medias', [])
@@ -126,8 +125,10 @@ async def download_video(video_url: str, downloader_api_key: str) -> str:
         highest_mp4_url = None
 
         for media in medias:
+            # mp4 형식이고, 오디오가 아닌 비디오 중에서 최고 해상도 선택
             if media.get('extension') == 'mp4' and media.get('type') == 'video' and not media.get('is_audio', False):
                 quality_str = media.get('quality', '')
+                # 해상도 정보 추출 (예: '1080p', '720p' 등)
                 if quality_str.endswith('p'):
                     try:
                         resolution = int(quality_str[:-1])
@@ -146,26 +147,25 @@ async def download_video(video_url: str, downloader_api_key: str) -> str:
 
         print("선택된 고해상도 MP4 URL:", highest_mp4_url)
 
-        # 비동기 headless 브라우저 사용
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+        video_response = requests.get(highest_mp4_url, stream=True)
+        if video_response.status_code != 200:
+            print("동영상 다운로드 실패:", video_response.status_code)
+            raise HTTPException(status_code=video_response.status_code, detail="동영상을 다운로드하는 데 실패했습니다.")
 
-            # 필요한 경우 User-Agent 세팅 가능
-            # await page.set_extra_http_headers({"User-Agent": "Mozilla/5.0 ..."})
+        # VIDEO_DIR이 없다면 생성
+        os.makedirs(VIDEO_DIR, exist_ok=True)
 
-            vid_response = await page.request.get(highest_mp4_url)
-            if vid_response.status != 200:
-                await browser.close()
-                raise HTTPException(status_code=500, detail="동영상을 다운로드하는 데 실패했습니다.")
+        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        print("다운로드한 동영상 저장 경로:", video_file)
 
-            video_content = await vid_response.body()
-            os.makedirs(VIDEO_DIR, exist_ok=True)
-            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        try:
             with open(video_file, 'wb') as file:
-                file.write(video_content)
-
-            await browser.close()
+                for chunk in video_response.iter_content(chunk_size=1024):
+                    if chunk:
+                        file.write(chunk)
+        except Exception as e:
+            print("파일 쓰기 오류:", e)
+            raise HTTPException(status_code=500, detail=f"파일 저장 중 오류 발생: {e}")
 
     elif is_tiktok_url(video_url):
         api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
@@ -455,7 +455,7 @@ async def process_video_frames(request: VideoFrameAnalysisRequest):
         else:
             normalized_video_url = request.video_url
 
-        video_file, caption = await download_video(normalized_video_url, request.downloader_api_key)
+        video_file, caption = download_video(normalized_video_url, request.downloader_api_key)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"동영상 다운로드 중 오류 발생: {str(e)}")
 
