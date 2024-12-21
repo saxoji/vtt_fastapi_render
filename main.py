@@ -103,61 +103,60 @@ def normalize_instagram_url(video_url: str) -> str:
 def download_video(video_url: str, downloader_api_key: str) -> str:
     if is_youtube_url(video_url):
         # 유튜브 동영상 처리
-        api_url = f"https://zylalabs.com/api/5619/save+video+api/7306/save+url?url={video_url}"
+        api_url = f"https://zylalabs.com/api/5789/video+downloader+api/7526/download+media?url={video_url}"
         api_headers = {
             'Authorization': f'Bearer {downloader_api_key}'
         }
-
+    
         response = requests.get(api_url, headers=api_headers)
         if response.status_code != 200:
             print("API 응답 에러:", response.status_code, response.text)
-            raise HTTPException(status_code=response.status_code, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
-
+            raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
+    
         data = response.json()
-        medias = data.get('medias', [])
-
-        if not medias:
-            print("동영상 정보 없음")
-            raise HTTPException(status_code=500, detail="동영상 정보를 찾을 수 없습니다.")
-
+    
+        # 데이터 구조 내의 "links" 키에서 MP4 파일 정보 확인
+        video_links = data.get('links', [])
+        if not video_links:
+            raise HTTPException(status_code=500, detail="동영상 링크 정보를 찾을 수 없습니다.")
+    
         # 가능한 최고 화질의 MP4 동영상 URL 선택
         highest_resolution = 0
         highest_mp4_url = None
-
-        for media in medias:
-            # mp4 형식이고, 오디오가 아닌 비디오 중에서 최고 해상도 선택
-            if media.get('extension') == 'mp4' and media.get('type') == 'video' and not media.get('is_audio', False):
-                quality_str = media.get('quality', '')
-                # 해상도 정보 추출 (예: '1080p', '720p' 등)
-                if quality_str.endswith('p'):
-                    try:
-                        resolution = int(quality_str[:-1])
-                    except ValueError:
-                        resolution = 0
-                else:
-                    resolution = 0
-
+        for link_info in video_links:
+            container = link_info.get('container', '')
+            mime_type = link_info.get('mimeType', '')
+            if ('mp4' in container) or ('video/mp4' in mime_type):
+                width = link_info.get('width', 0)
+                height = link_info.get('height', 0)
+                resolution = width * height
                 if resolution > highest_resolution:
                     highest_resolution = resolution
-                    highest_mp4_url = media.get('url')
-
-        if highest_mp4_url is None:
+                    highest_mp4_url = link_info.get('link')
+    
+        if not highest_mp4_url:
             print("MP4 파일을 찾을 수 없음")
-            raise HTTPException(status_code=500, detail="적절한 MP4 파일을 찾을 수 없습니다.")
-
+            raise HTTPException(status_code=500, detail="적절한 MP4 다운로드 링크를 찾을 수 없습니다.")
+    
         print("선택된 고해상도 MP4 URL:", highest_mp4_url)
-
-        video_response = requests.get(highest_mp4_url, stream=True)
-        if video_response.status_code != 200:
-            print("동영상 다운로드 실패:", video_response.status_code)
-            raise HTTPException(status_code=video_response.status_code, detail="동영상을 다운로드하는 데 실패했습니다.")
-
+    
+        # 실제 동영상 파일 다운로드
+        try:
+            video_response = requests.get(highest_mp4_url, stream=True, timeout=30)
+            if video_response.status_code != 200:
+                print("동영상 다운로드 실패:", video_response.status_code)
+                raise HTTPException(status_code=500, detail="동영상을 다운로드하는 데 실패했습니다.")
+        except requests.exceptions.RequestException as e:
+            print("동영상 다운로드 요청 에러:", e)
+            raise HTTPException(status_code=500, detail=f"동영상 다운로드 요청 중 오류 발생: {e}")
+    
         # VIDEO_DIR이 없다면 생성
         os.makedirs(VIDEO_DIR, exist_ok=True)
-
+    
+        # 임의의 UUID로 로컬 파일 생성
         video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
         print("다운로드한 동영상 저장 경로:", video_file)
-
+    
         try:
             with open(video_file, 'wb') as file:
                 for chunk in video_response.iter_content(chunk_size=1024):
@@ -166,6 +165,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         except Exception as e:
             print("파일 쓰기 오류:", e)
             raise HTTPException(status_code=500, detail=f"파일 저장 중 오류 발생: {e}")
+
 
     elif is_tiktok_url(video_url):
         api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
