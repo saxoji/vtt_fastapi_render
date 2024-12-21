@@ -145,7 +145,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             video_response = requests.get(highest_mp4_url, stream=True, timeout=30)
             if video_response.status_code != 200:
                 print("동영상 다운로드 실패:", video_response.status_code)
-                raise HTTPException(status_code=500, detail="동영상을 다운로드하는 데 실패했습니다.")
+                raise HTTPException(status_code=video_response.status_code, detail="동영상을 다운로드하는 데 실패했습니다.")
         except requests.exceptions.RequestException as e:
             print("동영상 다운로드 요청 에러:", e)
             raise HTTPException(status_code=500, detail=f"동영상 다운로드 요청 중 오류 발생: {e}")
@@ -179,7 +179,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         try:
             response = requests.get(f"{api_url}?url={video_url}", headers=api_headers)
             if response.status_code != 200:
-                raise HTTPException(status_code=500, detail="API로부터 TikTok 동영상 정보를 가져오는 데 실패했습니다.")
+                raise HTTPException(status_code=response.status_code, detail="API로부터 TikTok 동영상 정보를 가져오는 데 실패했습니다.")
         except requests.exceptions.RequestException as e:
             print(f"API 호출 중 오류 발생: {e}")
             raise HTTPException(status_code=500, detail=f"TikTok API 요청 중 오류 발생: {e}")
@@ -231,7 +231,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
 
         response = requests.get(api_url, headers=headers)
         if response.status_code != 200:
-            raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
+            raise HTTPException(status_code=response.status_code, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
 
         data = response.json()
         video_url = data.get("video")
@@ -239,6 +239,8 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
 
         if not video_url:
             raise HTTPException(status_code=500, detail="적절한 MP4 파일을 찾을 수 없습니다.")
+
+        print(f"Downloading from URL: {video_url}")
 
         video_response = requests.get(video_url, stream=True)
         video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
@@ -250,6 +252,8 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         return video_file, caption
 
     else:
+        print(f"Downloading from URL: {video_url}")
+        
         # 일반 웹 동영상 파일 처리
         video_response = requests.get(video_url, stream=True)
         if video_response.status_code != 200:
