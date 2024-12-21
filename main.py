@@ -97,70 +97,103 @@ def normalize_instagram_url(video_url: str) -> str:
 # (2)+(3)번 적용: Playwright + Stealth + '미리' 방문 세션 확보
 # ------------------------------------------------
 async def playwright_stream_download(
-    watch_url: str,    # 먼저 방문해 세션/쿠키 확보할 페이지 (ex: 유튜브 watch 링크)
-    file_url: str,     # 실제 다운로드할 MP4 링크
+    watch_url: str,
+    file_url: str,
     local_file_path: str
 ):
-    """
-    1) headless 브라우저 + Stealth 모드 실행
-    2) watch_url 방문해 JS/쿠키/세션 획득
-    3) route()로 file_url 응답을 가로채 바이트 저장(가짜 스트리밍)
-       - 실제론 전체 body()를 한꺼번에 메모리에 로드합니다.
-    """
-
     async with async_playwright() as p:
-        # 1) 브라우저/컨텍스트 생성 (headless)
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--disable-site-isolation-trials'
+            ]
+        )
+        
         context = await browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 "
-                "Safari/537.36"
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/121.0.0.0 Safari/537.36"
             ),
+            viewport={'width': 1920, 'height': 1080},
             locale="en-US",
+            timezone_id="America/New_York",
+            geolocation={"latitude": 40.7128, "longitude": -74.0060},
+            permissions=['geolocation'],
+            extra_http_headers={
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+            }
         )
+        
         page = await context.new_page()
-
-        # (3) Stealth 모드 적용
         await stealth_async(page)
-
-        # (2) '미리' watch_url 접근 (쿠키/세션)
+        
+        # Set additional JavaScript properties
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => false,
+            });
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en'],
+            });
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5],
+            });
+        """)
+        
         try:
-            await page.goto(watch_url, wait_until="domcontentloaded")
-            # 필요하다면 로그인/버튼 클릭 등 추가 조작
+            # Pre-visit with longer timeout and wait for network idle
+            await page.goto(watch_url, wait_until="networkidle", timeout=30000)
+            await page.wait_for_timeout(5000)  # Additional wait
+            
         except Exception as e:
             print(f"[WARN] Pre-visit({watch_url}) 실패: {e}")
-
-        # 2) route 등록
+        
         async def handle_route(route):
             if route.request.url == file_url:
-                resp = await route.fetch()
+                headers = {
+                    'Referer': 'https://www.youtube.com/',
+                    'Origin': 'https://www.youtube.com',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Connection': 'keep-alive',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                }
+                
+                resp = await route.fetch(headers=headers)
                 if not resp.ok:
+                    print(f"Route response not OK: {resp.status}")
                     await route.abort()
                     return
-
+                
                 content = await resp.body()
                 chunk_size = 1024 * 64
                 with open(local_file_path, 'wb') as f:
                     for i in range(0, len(content), chunk_size):
                         f.write(content[i:i+chunk_size])
-
+                
                 await route.fulfill(response=resp)
             else:
                 await route.continue_()
-
+        
         await context.route("**/*", handle_route)
-
-        # 3) 다운로드 URL로 이동
-        await page.set_extra_http_headers(
-            {
-                "Referer": "https://www.youtube.com/",
-                "Accept-Language": "en-US,en;q=0.9"
-            }
-        )
-        await page.goto(file_url, wait_until="load")
-        await page.wait_for_timeout(3000)
-
+        
+        # Add cookies (optional - add if you have specific cookies)
+        # await context.add_cookies([{"name": "CONSENT", "value": "YES+", "domain": ".youtube.com"}])
+        
+        await page.goto(file_url, wait_until="load", timeout=30000)
+        await page.wait_for_timeout(5000)
+        
         await browser.close()
 
 # ------------------------------------------------
