@@ -11,3 +11,5 @@ pytube
 requests
 python-multipart
 opencv-contrib-python
+playwright
+pytest-playwright
