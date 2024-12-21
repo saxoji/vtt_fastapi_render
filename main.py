@@ -104,66 +104,69 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
     if is_youtube_url(video_url):
         # 유튜브 동영상 처리
         api_url = f"https://zylalabs.com/api/5789/video+downloader+api/7526/download+media?url={video_url}"
-        headers = {"Authorization": f"Bearer {downloader_api_key}"}
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(api_url, headers=headers) as response:
-                if response.status != 200:
-                    raise HTTPException(500, f"유튜브 API 요청 실패: {response.status}, {await response.text()}")
-                data = await response.json()
-        
+        api_headers = {
+            'Authorization': f'Bearer {downloader_api_key}'
+        }
+    
+        response = requests.get(api_url, headers=api_headers)
+        if response.status_code != 200:
+            print("API 응답 에러:", response.status_code, response.text)
+            raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
+    
+        data = response.json()
+    
+        # 데이터 구조 내의 "links" 키에서 MP4 파일 정보 확인
         video_links = data.get('links', [])
         if not video_links:
-            raise HTTPException(500, "유튜브 링크 정보가 없음")
-
-        # 2. 최고 해상도 MP4 URL 찾기
+            raise HTTPException(status_code=500, detail="동영상 링크 정보를 찾을 수 없습니다.")
+    
+        # 가능한 최고 화질의 MP4 동영상 URL 선택
         highest_resolution = 0
         highest_mp4_url = None
         for link_info in video_links:
             container = link_info.get('container', '')
             mime_type = link_info.get('mimeType', '')
             if ('mp4' in container) or ('video/mp4' in mime_type):
-                w = link_info.get('width', 0)
-                h = link_info.get('height', 0)
-                res = w * h
-                if res > highest_resolution:
-                    highest_resolution = res
+                width = link_info.get('width', 0)
+                height = link_info.get('height', 0)
+                resolution = width * height
+                if resolution > highest_resolution:
+                    highest_resolution = resolution
                     highest_mp4_url = link_info.get('link')
-
+    
         if not highest_mp4_url:
-            raise HTTPException(500, "유튜브 mp4 링크 없음")
-
-        # 3. aiohttp을 사용한 직접 다운로드
-        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://www.youtube.com/',
-            'Origin': 'https://www.youtube.com'
-        }
-        
+            print("MP4 파일을 찾을 수 없음")
+            raise HTTPException(status_code=500, detail="적절한 MP4 다운로드 링크를 찾을 수 없습니다.")
+    
+        print("선택된 고해상도 MP4 URL:", highest_mp4_url)
+    
+        # 실제 동영상 파일 다운로드
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(highest_mp4_url, headers=headers) as response:
-                    if response.status != 200:
-                        raise HTTPException(500, f"비디오 다운로드 실패: {response.status}")
-                    
-                    with open(video_file, 'wb') as f:
-                        while True:
-                            chunk = await response.content.read(1024 * 64)
-                            if not chunk:
-                                break
-                            f.write(chunk)
-            
-            return (video_file, None)
-            
+            video_response = requests.get(highest_mp4_url, stream=True, timeout=30)
+            if video_response.status_code != 200:
+                print("동영상 다운로드 실패:", video_response.status_code)
+                raise HTTPException(status_code=500, detail="동영상을 다운로드하는 데 실패했습니다.")
+        except requests.exceptions.RequestException as e:
+            print("동영상 다운로드 요청 에러:", e)
+            raise HTTPException(status_code=500, detail=f"동영상 다운로드 요청 중 오류 발생: {e}")
+    
+        # VIDEO_DIR이 없다면 생성
+        os.makedirs(VIDEO_DIR, exist_ok=True)
+    
+        # 임의의 UUID로 로컬 파일 생성
+        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        print("다운로드한 동영상 저장 경로:", video_file)
+    
+        try:
+            with open(video_file, 'wb') as file:
+                for chunk in video_response.iter_content(chunk_size=1024):
+                    if chunk:
+                        file.write(chunk)
         except Exception as e:
-            if os.path.exists(video_file):
-                os.remove(video_file)
-            raise HTTPException(500, f"다운로드 중 오류 발생: {str(e)}")
+            print("파일 쓰기 오류:", e)
+            raise HTTPException(status_code=500, detail=f"파일 저장 중 오류 발생: {e}")
+
+        return video_file, None
 
 
     elif is_tiktok_url(video_url):
@@ -261,7 +264,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
                 if chunk:
                     file.write(chunk)
 
-    return video_file, None
+        return video_file, None
 
 # 초를 hh:mm:ss 형식으로 변환하는 함수
 def seconds_to_timecode(seconds: int) -> str:
