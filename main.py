@@ -1,3 +1,5 @@
+다음 코드에서 유튜브 영상 다운로드 부분만 requests.get 방식말고  yd-dlp 라이브러리 를 사용하는 것으로 변경해라
+============================================
 import os
 import uuid
 import requests
@@ -14,9 +16,6 @@ import asyncio
 import aiohttp
 import openai
 import time
-import tempfile
-import yt_dlp
-import textwrap
 
 # Swagger 검사 설정
 SWAGGER_HEADERS = {
@@ -106,36 +105,70 @@ def normalize_instagram_url(video_url: str) -> str:
 def download_video(video_url: str, downloader_api_key: str) -> str:
     if is_youtube_url(video_url):
         # 유튜브 동영상 처리
-        try:            
-            # yt-dlp 옵션 설정
-            cookie_file_path="./mycookie.txt"
-            
-            ydl_opts = {
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',  # 최상의 mp4 품질 선택
-                'merge_output_format': 'mp4',
-                'outtmpl': os.path.join(VIDEO_DIR, f'{uuid.uuid4()}.%(ext)s'),  # 출력 파일 이름 설정
-                'cookiefile': cookie_file_path,  # 임시 쿠키 파일 경로 전달
-                "verbose": True,  # Verbose 모드 활성화
-                'quiet': True,
-                'no_warnings': True,
-            }
-            
-            # yt-dlp 인스턴스 생성 및 다운로드 실행
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # 동영상 정보 추출
-                info = ydl.extract_info(video_url, download=True)
-                video_file = ydl.prepare_filename(info)
-                
-                # 다운로드 완료 확인
-                if not os.path.exists(video_file):
-                    raise HTTPException(status_code=500, detail="동영상 다운로드에 실패했습니다.")
-                
-                return video_file, None
-                
+        api_url = f"https://zylalabs.com/api/5789/video+downloader+api/7526/download+media?url={video_url}"
+        api_headers = {
+            'Authorization': f'Bearer {downloader_api_key}'
+        }
+    
+        response = requests.get(api_url, headers=api_headers)
+        if response.status_code != 200:
+            print("API 응답 에러:", response.status_code, response.text)
+            raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
+    
+        data = response.json()
+    
+        # 데이터 구조 내의 "links" 키에서 MP4 파일 정보 확인
+        video_links = data.get('links', [])
+        if not video_links:
+            raise HTTPException(status_code=500, detail="동영상 링크 정보를 찾을 수 없습니다.")
+    
+        # 가능한 최고 화질의 MP4 동영상 URL 선택
+        highest_resolution = 0
+        highest_mp4_url = None
+        for link_info in video_links:
+            container = link_info.get('container', '')
+            mime_type = link_info.get('mimeType', '')
+            if ('mp4' in container) or ('video/mp4' in mime_type):
+                width = link_info.get('width', 0)
+                height = link_info.get('height', 0)
+                resolution = width * height
+                if resolution > highest_resolution:
+                    highest_resolution = resolution
+                    highest_mp4_url = link_info.get('link')
+    
+        if not highest_mp4_url:
+            print("MP4 파일을 찾을 수 없음")
+            raise HTTPException(status_code=500, detail="적절한 MP4 다운로드 링크를 찾을 수 없습니다.")
+    
+        print("선택된 고해상도 MP4 URL:", highest_mp4_url)
+    
+        # 실제 동영상 파일 다운로드
+        try:
+            video_response = requests.get(highest_mp4_url, stream=True, timeout=30)
+            if video_response.status_code != 200:
+                print("동영상 다운로드 실패:", video_response.status_code)
+                raise HTTPException(status_code=video_response.status_code, detail="동영상을 다운로드하는 데 실패했습니다.")
+        except requests.exceptions.RequestException as e:
+            print("동영상 다운로드 요청 에러:", e)
+            raise HTTPException(status_code=500, detail=f"동영상 다운로드 요청 중 오류 발생: {e}")
+    
+        # VIDEO_DIR이 없다면 생성
+        os.makedirs(VIDEO_DIR, exist_ok=True)
+    
+        # 임의의 UUID로 로컬 파일 생성
+        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        print("다운로드한 동영상 저장 경로:", video_file)
+    
+        try:
+            with open(video_file, 'wb') as file:
+                for chunk in video_response.iter_content(chunk_size=1024):
+                    if chunk:
+                        file.write(chunk)
         except Exception as e:
-            print(f"yt-dlp 다운로드 오류: {e}")
-            raise HTTPException(status_code=500, detail=f"유튜브 동영상 다운로드 중 오류 발생: {str(e)}")
+            print("파일 쓰기 오류:", e)
+            raise HTTPException(status_code=500, detail=f"파일 저장 중 오류 발생: {e}")
 
+        return video_file, None
 
 
     elif is_tiktok_url(video_url):
@@ -476,3 +509,9 @@ async def process_video_frames(request: VideoFrameAnalysisRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+    =======================================
+    
+    yt-dlp 최신 라이브러리 문서는 다음과 같다.
+    ============================================
+    1. https://yt-dlp.eknerd.com/docs/Embedding%20yt-dlp/using-yt-dlp-in-python-scripts
+    2.https://yt-dlp.eknerd.com/docs/Embedding%20yt-dlp/examples-of-embedding
