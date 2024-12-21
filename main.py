@@ -14,6 +14,7 @@ import asyncio
 import aiohttp
 import openai
 import time
+from playwright.sync_api import sync_playwright
 
 # Swagger 검사 설정
 SWAGGER_HEADERS = {
@@ -111,7 +112,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         response = requests.get(api_url, headers=api_headers)
         if response.status_code != 200:
             print("API 응답 에러:", response.status_code, response.text)
-            raise HTTPException(status_code=response.status_code, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
+            raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
 
         data = response.json()
         medias = data.get('medias', [])
@@ -125,10 +126,8 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         highest_mp4_url = None
 
         for media in medias:
-            # mp4 형식이고, 오디오가 아닌 비디오 중에서 최고 해상도 선택
             if media.get('extension') == 'mp4' and media.get('type') == 'video' and not media.get('is_audio', False):
                 quality_str = media.get('quality', '')
-                # 해상도 정보 추출 (예: '1080p', '720p' 등)
                 if quality_str.endswith('p'):
                     try:
                         resolution = int(quality_str[:-1])
@@ -147,26 +146,26 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
 
         print("선택된 고해상도 MP4 URL:", highest_mp4_url)
 
-        headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/127.0.6533.107 Mobile/15E148 Safari/604.1"}
-        video_response = requests.get(highest_mp4_url, headers=headers, stream=True)
-        if video_response.status_code != 200:
-            print("동영상 다운로드 실패:", video_response.status_code)
-            raise HTTPException(status_code=video_response.status_code, detail="동영상을 다운로드하는 데 실패했습니다.")
+        # Headless 브라우저 사용
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            # 필요한 경우 사용자 에이전트를 설정할 수도 있음
+            # page.set_extra_http_headers({"User-Agent": "Mozilla/5.0 ..."})
 
-        # VIDEO_DIR이 없다면 생성
-        os.makedirs(VIDEO_DIR, exist_ok=True)
+            # headless 브라우저 환경에서 동영상 URL 요청
+            vid_response = page.request.get(highest_mp4_url)
+            if vid_response.status != 200:
+                browser.close()
+                raise HTTPException(status_code=500, detail="동영상을 다운로드하는 데 실패했습니다.")
 
-        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-        print("다운로드한 동영상 저장 경로:", video_file)
-
-        try:
+            video_content = vid_response.body()
+            os.makedirs(VIDEO_DIR, exist_ok=True)
+            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
             with open(video_file, 'wb') as file:
-                for chunk in video_response.iter_content(chunk_size=1024):
-                    if chunk:
-                        file.write(chunk)
-        except Exception as e:
-            print("파일 쓰기 오류:", e)
-            raise HTTPException(status_code=500, detail=f"파일 저장 중 오류 발생: {e}")
+                file.write(video_content)
+
+            browser.close()
 
     elif is_tiktok_url(video_url):
         api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
