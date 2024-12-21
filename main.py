@@ -158,6 +158,11 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             print(f"yt-dlp 다운로드 오류: {e}")
             raise HTTPException(status_code=500, detail=f"유튜브 동영상 다운로드 중 오류 발생: {str(e)}")
 
+        finally:
+                # 임시 쿠키 파일 삭제
+                if os.path.exists(temp_cookie_path):
+                    os.remove(temp_cookie_path)
+
 
     elif is_tiktok_url(video_url):
         api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
