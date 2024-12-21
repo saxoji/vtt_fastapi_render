@@ -108,7 +108,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         # 유튜브 동영상 처리
         try:            
             # yt-dlp 옵션 설정
-            cookie_file_path="/opt/render/project/src/mycookie.txt"
+            cookie_file_path="./mycookie.txt"
             
             ydl_opts = {
                 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',  # 최상의 mp4 품질 선택
