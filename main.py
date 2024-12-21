@@ -14,7 +14,7 @@ import asyncio
 import aiohttp
 import openai
 import time
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 
 # Swagger 검사 설정
 SWAGGER_HEADERS = {
@@ -455,7 +455,7 @@ async def process_video_frames(request: VideoFrameAnalysisRequest):
         else:
             normalized_video_url = request.video_url
 
-        video_file, caption = download_video(normalized_video_url, request.downloader_api_key)
+        video_file, caption = await download_video(normalized_video_url, request.downloader_api_key)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"동영상 다운로드 중 오류 발생: {str(e)}")
 
