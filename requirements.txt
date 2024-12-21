@@ -13,4 +13,3 @@ python-multipart
 opencv-contrib-python
 playwright
 pytest-playwright
-stealth-playwright
