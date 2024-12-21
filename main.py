@@ -15,24 +15,18 @@ import aiohttp
 import openai
 import time
 
-# ==== Playwright & Stealth ====
-from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
-
-# ------------------------------------------------
-# FastAPI 애플리케이션 설정
-# ------------------------------------------------
-app = FastAPI(
-    title="LINKBRICKS HORIZON-AI Video Frame Analysis API ENGINE",
-    version="100.100.100",
-    description=(
+# Swagger 검사 설정
+SWAGGER_HEADERS = {
+    "title": "LINKBRICKS HORIZON-AI Video Frame Analysis API ENGINE",
+    "version": "100.100.100",
+    "description": (
         "## 비디오 프레임 분석 API 엔진 \n"
         "- API Swagger \n"
-        "- 비디오에서 프레임을 추출하고 Linkbricks Horizon-Ai로 분석 \n"
+        "- 비디오에서 프레임을 출시하고 Linkbricks Horizon-Ai로 분석 \n"
         "- MP4, MOV, AVI, MKV, WMV, FLV, OGG, WebM \n"
-        "- YOUTUBE, TIKTOK, INSTAGRAM 지원"
+        "- YOUTUBE, TIKTOK 지원"
     ),
-    contact={
+    "contact": {
         "name": "Linkbricks Horizon AI",
         "url": "https://www.linkbricks.com",
         "email": "contact@linkbricks.com",
@@ -41,187 +35,88 @@ app = FastAPI(
             "url": "https://www.gnu.org/licenses/gpl-3.0.html",
         },
     },
-)
+}
 
-# ------------------------------------------------
-# 전역 설정
-# ------------------------------------------------
+app = FastAPI(**SWAGGER_HEADERS)
+
+# 인증 키 설정
 REQUIRED_AUTH_KEY = "linkbricks-saxoji-benedict-ji-01034726435!@#$%231%$#@%"
-VIDEO_DIR = "video"
-os.makedirs(VIDEO_DIR, exist_ok=True)
 
-# ------------------------------------------------
-# Pydantic 모델
-# ------------------------------------------------
+# 파일을 저장할 디렉토리 설정
+VIDEO_DIR = "video"
+if not os.path.exists(VIDEO_DIR):
+    os.makedirs(VIDEO_DIR)
+
+# 모델 정의
 class VideoFrameAnalysisRequest(BaseModel):
     api_key: str
     auth_key: str
-    video_url: str          # (유튜브, TikTok, 인스타, 일반URL 등)
-    seconds_per_frame: int = None  # 프레임 추출 간격(초) - interval 방식에만
-    downloader_api_key: str        # zylalabs API 등 동영상 다운로드 키
-    extraction_type: str           # "interval" or "keyframe"
+    video_url: str  # 동영상 URL (유튜브 또는 틱톡 링크 포함)
+    seconds_per_frame: int = None  # 프레임 출시 간격(초), interval 방식에서 사용
+    downloader_api_key: str  # 동영상 다운로드를 위한 API 키
+    extraction_type: str  # "interval" 또는 "keyframe"
 
-# ------------------------------------------------
-# URL 판별 및 정규화
-# ------------------------------------------------
+# 유튜브 URL인지 확인하는 함수
 def is_youtube_url(url: str) -> bool:
     return "youtube.com" in url or "youtu.be" in url
 
+# 틱톡 URL인지 확인하는 함수
 def is_tiktok_url(url: str) -> bool:
     return "tiktok.com" in url
 
+# 인스타그램 URL인지 확인하는 함수
 def is_instagram_url(url: str) -> bool:
     return "instagram.com/reel/" in url or "instagram.com/p/" in url
 
+# 유튜브 URL을 표준 형식으로 변환하는 함수
 def normalize_youtube_url(video_url: str) -> str:
+    # youtu.be 형식 처리
     if "youtu.be" in video_url:
         video_id = video_url.split('/')[-1].split('?')[0]
         return f"https://www.youtube.com/watch?v={video_id}"
+    
+    # youtube.com/embed 형식 처리
     if "youtube.com/embed" in video_url:
         video_id = video_url.split('/')[-1].split('?')[0]
         return f"https://www.youtube.com/watch?v={video_id}"
+    
+    # youtube.com/shorts 형식 처리
     if "youtube.com/shorts" in video_url:
         video_id = video_url.split('/')[-1].split('?')[0]
         return f"https://www.youtube.com/watch?v={video_id}"
+    
+    # youtube.com/watch 형식 (이미 표준화된 URL)
     if "youtube.com/watch" in video_url:
-        return video_url.split('&')[0]  # 쿼리 파라미터 제거
+        return video_url.split('&')[0]  # 추가 쿼리 매개변수 제거
+    
+    # 예상치 못한 형식 처리
     raise ValueError("유효하지 않은 유튜브 URL 형식입니다.")
 
+# 인스타그램 URL을 표준 형식으로 변환하는 함수
 def normalize_instagram_url(video_url: str) -> str:
     if "/reel/" in video_url:
         video_id = video_url.split("/reel/")[-1].split("/")[0]
         return f"https://www.instagram.com/p/{video_id}/"
     return video_url
 
-# ------------------------------------------------
-# (2)+(3)번 적용: Playwright + Stealth + '미리' 방문 세션 확보
-# ------------------------------------------------
-async def playwright_stream_download(
-    watch_url: str,
-    file_url: str,
-    local_file_path: str
-):
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                '--disable-blink-features=AutomationControlled',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-site-isolation-trials'
-            ]
-        )
-        
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/121.0.0.0 Safari/537.36"
-            ),
-            viewport={'width': 1920, 'height': 1080},
-            locale="en-US",
-            timezone_id="America/New_York",
-            geolocation={"latitude": 40.7128, "longitude": -74.0060},
-            permissions=['geolocation'],
-            extra_http_headers={
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-            }
-        )
-        
-        page = await context.new_page()
-        await stealth_async(page)
-        
-        # Set additional JavaScript properties
-        await page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => false,
-            });
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['en-US', 'en'],
-            });
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5],
-            });
-        """)
-        
-        try:
-            # Pre-visit with longer timeout and wait for network idle
-            await page.goto(watch_url, wait_until="networkidle", timeout=30000)
-            await page.wait_for_timeout(5000)  # Additional wait
-            
-        except Exception as e:
-            print(f"[WARN] Pre-visit({watch_url}) 실패: {e}")
-        
-        async def handle_route(route):
-            if route.request.url == file_url:
-                headers = {
-                    'Referer': 'https://www.youtube.com/',
-                    'Origin': 'https://www.youtube.com',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Connection': 'keep-alive',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                }
-                
-                resp = await route.fetch(headers=headers)
-                if not resp.ok:
-                    print(f"Route response not OK: {resp.status}")
-                    await route.abort()
-                    return
-                
-                content = await resp.body()
-                chunk_size = 1024 * 64
-                with open(local_file_path, 'wb') as f:
-                    for i in range(0, len(content), chunk_size):
-                        f.write(content[i:i+chunk_size])
-                
-                await route.fulfill(response=resp)
-            else:
-                await route.continue_()
-        
-        await context.route("**/*", handle_route)
-        
-        # Add cookies (optional - add if you have specific cookies)
-        # await context.add_cookies([{"name": "CONSENT", "value": "YES+", "domain": ".youtube.com"}])
-        
-        await page.goto(file_url, wait_until="load", timeout=30000)
-        await page.wait_for_timeout(5000)
-        
-        await browser.close()
-
-# ------------------------------------------------
-# 유튜브/틱톡/인스타/일반 URL에 따른 다운로드 처리
-# ------------------------------------------------
-async def download_video(video_url: str, downloader_api_key: str):
-    """
-    :return: (video_file_path, caption_if_any)
-    """
-
-    # -------------------------
-    # 1) YOUTUBE
-    # -------------------------
+# URL로부터 동영상을 다운로드하는 함수
+def download_video(video_url: str, downloader_api_key: str) -> str:
     if is_youtube_url(video_url):
-        # (예시) zylalabs.com API 호출
+        # 유튜브 동영상 처리
         api_url = f"https://zylalabs.com/api/5789/video+downloader+api/7526/download+media?url={video_url}"
         headers = {"Authorization": f"Bearer {downloader_api_key}"}
-
-        r = requests.get(api_url, headers=headers)
-        if r.status_code != 200:
-            raise HTTPException(500, f"유튜브 API 요청 실패: {r.status_code}, {r.text}")
-
-        data = r.json()
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url, headers=headers) as response:
+                if response.status != 200:
+                    raise HTTPException(500, f"유튜브 API 요청 실패: {response.status}, {await response.text()}")
+                data = await response.json()
+        
         video_links = data.get('links', [])
         if not video_links:
             raise HTTPException(500, "유튜브 링크 정보가 없음")
 
-        # 최고 해상도 mp4 찾기
+        # 2. 최고 해상도 MP4 URL 찾기
         highest_resolution = 0
         highest_mp4_url = None
         for link_info in video_links:
@@ -238,145 +133,184 @@ async def download_video(video_url: str, downloader_api_key: str):
         if not highest_mp4_url:
             raise HTTPException(500, "유튜브 mp4 링크 없음")
 
-        # (2)+(3)번 방식: 미리 watch_url 방문 → stealth → 다운로드
-        watch_url = video_url  # 유튜브 영상 페이지
+        # 3. aiohttp을 사용한 직접 다운로드
         video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://www.youtube.com/',
+            'Origin': 'https://www.youtube.com'
+        }
+        
         try:
-            await playwright_stream_download(
-                watch_url=watch_url,
-                file_url=highest_mp4_url,
-                local_file_path=video_file
-            )
+            async with aiohttp.ClientSession() as session:
+                async with session.get(highest_mp4_url, headers=headers) as response:
+                    if response.status != 200:
+                        raise HTTPException(500, f"비디오 다운로드 실패: {response.status}")
+                    
+                    with open(video_file, 'wb') as f:
+                        while True:
+                            chunk = await response.content.read(1024 * 64)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+            
+            return (video_file, None)
+            
         except Exception as e:
-            raise HTTPException(500, f"Playwright 다운로드 오류: {e}")
+            if os.path.exists(video_file):
+                os.remove(video_file)
+            raise HTTPException(500, f"다운로드 중 오류 발생: {str(e)}")
 
-        return (video_file, None)
 
-    # -------------------------
-    # 2) TIKTOK (기존 로직)
-    # -------------------------
     elif is_tiktok_url(video_url):
         api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
-        headers = {"Authorization": f"Bearer {downloader_api_key}"}
-
+        api_headers = {
+            'Authorization': f'Bearer {downloader_api_key}'
+        }
+    
+        # API 호출
         try:
-            resp = requests.get(f"{api_url}?url={video_url}", headers=headers)
-            if resp.status_code != 200:
-                raise HTTPException(500, "TikTok API 요청 실패")
-        except requests.RequestException as e:
-            raise HTTPException(500, f"TikTok API 예외: {e}")
-
-        data = resp.json()
-        download_url = data.get("download_url")
+            response = requests.get(f"{api_url}?url={video_url}", headers=api_headers)
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail="API로부터 TikTok 동영상 정보를 가져오는 데 실패했습니다.")
+        except requests.exceptions.RequestException as e:
+            print(f"API 호출 중 오류 발생: {e}")
+            raise HTTPException(status_code=500, detail=f"TikTok API 요청 중 오류 발생: {e}")
+    
+        # API 응답 파싱
+        data = response.json()
+        print("API Response:", json.dumps(data, indent=4))  # 디버깅용
+    
+        # 다운로드 URL 확인
+        download_url = data.get('download_url')
         if not download_url:
-            raise HTTPException(500, "TikTok 다운로드 링크 없음")
-
-        # 기존 requests + stream
-        r2 = requests.get(download_url, stream=True, timeout=30)
-        if r2.status_code != 200:
-            raise HTTPException(500, "TikTok 동영상 다운로드 실패")
-
+            raise HTTPException(status_code=500, detail="TikTok API 응답에서 다운로드 URL을 찾을 수 없습니다.")
+    
+        print(f"Downloading from URL: {download_url}")
+    
+        # 동영상 다운로드
+        try:
+            video_response = requests.get(download_url, stream=True, timeout=30)
+            if video_response.status_code != 200:
+                print(f"Failed to download video. Status code: {video_response.status_code}")
+                raise HTTPException(status_code=500, detail="TikTok 동영상을 다운로드하는 중 오류가 발생했습니다.")
+        except requests.exceptions.RequestException as e:
+            print(f"Download request error: {e}")
+            raise HTTPException(status_code=500, detail=f"TikTok 동영상 다운로드 요청 중 오류 발생: {e}")
+    
+        # 동영상 파일 저장
         video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-        with open(video_file, 'wb') as f:
-            for chunk in r2.iter_content(chunk_size=1024):
-                if chunk:
-                    f.write(chunk)
+        print(f"Saving video to: {video_file}")
+    
+        try:
+            with open(video_file, 'wb') as file:
+                for chunk in video_response.iter_content(chunk_size=1024):
+                    if chunk:
+                        file.write(chunk)
+        except IOError as e:
+            print(f"File write error: {e}")
+            raise HTTPException(status_code=500, detail=f"파일 저장 중 오류 발생: {e}")
+    
+        return video_file, None
 
-        return (video_file, None)
 
-    # -------------------------
-    # 3) INSTAGRAM (기존 로직)
-    # -------------------------
     elif is_instagram_url(video_url):
-        norm_url = normalize_instagram_url(video_url)
-        api_url = f"https://zylalabs.com/api/1943/instagram+reels+downloader+api/2944/reel+downloader?url={norm_url}"
-        headers = {"Authorization": f"Bearer {downloader_api_key}"}
+        # 인스타그램 동영상 처리
+        normalized_url = normalize_instagram_url(video_url)
+        api_url = f"https://zylalabs.com/api/1943/instagram+reels+downloader+api/2944/reel+downloader?url={normalized_url}"
+        headers = {
+            'Authorization': f'Bearer {downloader_api_key}'
+        }
 
-        resp = requests.get(api_url, headers=headers)
-        if resp.status_code != 200:
-            raise HTTPException(500, "인스타그램 API 요청 실패")
+        response = requests.get(api_url, headers=headers)
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
 
-        data = resp.json()
-        reel_video_url = data.get("video")
+        data = response.json()
+        video_url = data.get("video")
         caption = data.get("caption", "")
-        if not reel_video_url:
-            raise HTTPException(500, "인스타 MP4 링크 없음")
 
-        r2 = requests.get(reel_video_url, stream=True)
-        if r2.status_code != 200:
-            raise HTTPException(500, "인스타 동영상 다운로드 실패")
+        if not video_url:
+            raise HTTPException(status_code=500, detail="적절한 MP4 파일을 찾을 수 없습니다.")
 
+        video_response = requests.get(video_url, stream=True)
         video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-        with open(video_file, 'wb') as f:
-            for chunk in r2.iter_content(chunk_size=1024):
+        with open(video_file, 'wb') as file:
+            for chunk in video_response.iter_content(chunk_size=1024):
                 if chunk:
-                    f.write(chunk)
+                    file.write(chunk)
 
-        return (video_file, caption)
+        return video_file, caption
 
-    # -------------------------
-    # 4) 일반 웹 동영상
-    # -------------------------
     else:
-        r = requests.get(video_url, stream=True)
-        if r.status_code != 200:
-            raise HTTPException(500, "일반 동영상 다운로드 실패")
-
-        ext = video_url.split('.')[-1].lower()
-        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.{ext}")
-        with open(video_file, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=1024):
+        # 일반 웹 동영상 파일 처리
+        video_response = requests.get(video_url, stream=True)
+        if video_response.status_code != 200:
+            raise HTTPException(status_code=500, detail="제공된 URL에서 동영상 파일을 다운로드하는 데 실패했습니다.")
+        
+        # 원본 확장자로 파일 저장
+        video_file_extension = video_url.split('.')[-1]
+        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.{video_file_extension}")
+        
+        with open(video_file, 'wb') as file:
+            for chunk in video_response.iter_content(chunk_size=1024):
                 if chunk:
-                    f.write(chunk)
+                    file.write(chunk)
 
-        return (video_file, None)
+    return video_file, None
 
-# ------------------------------------------------
-# 비디오 프레임 추출 로직
-# ------------------------------------------------
+# 초를 hh:mm:ss 형식으로 변환하는 함수
 def seconds_to_timecode(seconds: int) -> str:
     return str(datetime.timedelta(seconds=seconds))
 
+# 키 프레임을 추출하는 함수
 def extract_keyframes_from_video(video_file: str, seconds_per_frame: int, threshold: float = 0.6):
     frames = []
     timecodes = []
 
-    cap = cv2.VideoCapture(video_file)
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    video = cv2.VideoCapture(video_file)
+    fps = video.get(cv2.CAP_PROP_FPS)
     if not fps or fps == 0.0:
-        fps = 25
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    skip = int(fps * seconds_per_frame)
+        fps = 25  # 기본 FPS 설정
+    total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+    frames_to_skip = int(fps * seconds_per_frame)
     curr_frame = 0
 
-    success, prev_frame = cap.read()
+    success, prev_frame = video.read()
     if not success:
-        raise ValueError("동영상을 읽지 못했습니다.")
+        raise ValueError("동영상을 읽는 데 실패했습니다.")
 
     prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
     frames.append(base64.b64encode(cv2.imencode('.jpg', prev_frame)[1]).decode('utf-8'))
     timecodes.append(seconds_to_timecode(0))
 
     while curr_frame < total_frames - 1:
-        curr_frame += skip
-        cap.set(cv2.CAP_PROP_POS_FRAMES, curr_frame)
-        success, curr_data = cap.read()
+        curr_frame += frames_to_skip
+        video.set(cv2.CAP_PROP_POS_FRAMES, curr_frame)
+        success, curr_frame_data = video.read()
         if not success:
             break
 
-        curr_gray = cv2.cvtColor(curr_data, cv2.COLOR_BGR2GRAY)
-        diff = cv2.absdiff(prev_gray, curr_gray)
-        nz_count = np.count_nonzero(diff)
-        diff_ratio = nz_count / diff.size
+        curr_gray = cv2.cvtColor(curr_frame_data, cv2.COLOR_BGR2GRAY)
 
+        # 이전 프레임과 현재 프레임 간 차이를 계산 (구조적 유사도 또는 절대 차이)
+        frame_diff = cv2.absdiff(prev_gray, curr_gray)
+        non_zero_count = np.count_nonzero(frame_diff)
+        diff_ratio = non_zero_count / frame_diff.size
+
+        # 변화 비율이 임계값을 초과하면 키 프레임으로 선택
         if diff_ratio > threshold:
-            frames.append(base64.b64encode(cv2.imencode('.jpg', curr_data)[1]).decode('utf-8'))
+            frames.append(base64.b64encode(cv2.imencode('.jpg', curr_frame_data)[1]).decode('utf-8'))
             timecodes.append(seconds_to_timecode(int(curr_frame / fps)))
-            prev_gray = curr_gray
+            prev_gray = curr_gray  # 현재 프레임을 이전 프레임으로 업데이트
 
-    cap.release()
+    video.release()
 
+    # 최대 250개의 프레임만 유지
     if len(frames) > 250:
         step = len(frames) // 250
         frames = frames[::step][:250]
@@ -384,32 +318,37 @@ def extract_keyframes_from_video(video_file: str, seconds_per_frame: int, thresh
 
     return frames, timecodes
 
+# 지정된 간격으로 동영상에서 프레임을 추출하는 함수
 def extract_frames_from_video(video_file: str, seconds_per_frame: int):
     frames = []
     timecodes = []
 
-    cap = cv2.VideoCapture(video_file)
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    video = cv2.VideoCapture(video_file)
+    fps = video.get(cv2.CAP_PROP_FPS)
     if not fps or fps == 0.0:
-        fps = 25
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    skip = int(fps * seconds_per_frame)
+        fps = 25  # 기본 FPS 설정
+    total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = total_frames / fps
+
+    frames_to_skip = int(fps * seconds_per_frame)
     curr_frame = 0
 
     while curr_frame < total_frames - 1:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, curr_frame)
-        success, fr = cap.read()
+        video.set(cv2.CAP_PROP_POS_FRAMES, curr_frame)
+        success, frame = video.read()
         if not success:
             break
+        # 프레임을 JPEG로 인코딩하여 base64로 변환
+        _, buffer = cv2.imencode('.jpg', frame)
+        frame_base64 = base64.b64encode(buffer).decode('utf-8')
+        frames.append(frame_base64)
+        timecode_seconds = curr_frame / fps
+        timecodes.append(seconds_to_timecode(int(timecode_seconds)))
+        curr_frame += frames_to_skip
 
-        _, buffer = cv2.imencode('.jpg', fr)
-        frames.append(base64.b64encode(buffer).decode('utf-8'))
-        timecodes.append(seconds_to_timecode(int(curr_frame / fps)))
+    video.release()
 
-        curr_frame += skip
-
-    cap.release()
-
+    # 최대 250개의 프레임만 유지
     if len(frames) > 250:
         step = len(frames) // 250
         frames = frames[::step][:250]
@@ -417,60 +356,36 @@ def extract_frames_from_video(video_file: str, seconds_per_frame: int):
 
     return frames, timecodes
 
-# ------------------------------------------------
-# GPT-4o 분석/요약 로직 (예시)
-# ------------------------------------------------
+# 여러 이미지를 GPT-4o API로 분석하는 함수
 async def analyze_frames_with_gpt4(api_key: str, frames: List[str], timecodes: List[str]) -> List[str]:
-    content_list = [
-        {"type": "text", "text": "다음은 비디오에서 추출한 이미지들입니다. 각 이미지의 타임코드는 다음과 같습니다. 각 이미지에 대해 무엇이 보이는지 설명해주세요."}
-    ]
-    for i, f_b64 in enumerate(frames):
+    # 메시지 내용 구성
+    content_list = []
+    content_list.append({"type": "text", "text": "다음은 비디오에서 추출한 이미지들입니다. 각 이미지의 타임코드는 다음과 같습니다. 각 이미지에 대해 무엇이 보이는지 설명해주세요."})
+
+    for i, frame_base64 in enumerate(frames):
+        # 타임코드 추가
         content_list.append({"type": "text", "text": f"타임코드: {timecodes[i]}"})
+        # 이미지 추가
         content_list.append({
             "type": "image_url",
             "image_url": {
-                "url": f"data:image/jpeg;base64,{f_b64}",
-                "detail": "high"
+                "url": f"data:image/jpeg;base64,{frame_base64}",
+                "detail": "high"  # 필요에 따라 "high"로 변경 가능
             }
         })
 
-    messages = [{"role": "user", "content": content_list}]
-
-    try:
-        async with aiohttp.ClientSession() as sess:
-            async with sess.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "gpt-4o",
-                    "messages": messages,
-                    "max_tokens": 2000
-                }
-            ) as resp:
-                if resp.status != 200:
-                    err_detail = await resp.text()
-                    raise HTTPException(resp.status, f"OpenAI API 에러: {err_detail}")
-                data = await resp.json()
-                desc = data['choices'][0]['message']['content']
-                return desc.strip().split('\n')
-    except Exception as e:
-        raise HTTPException(500, f"이미지 분석 오류: {e}")
-
-async def summarize_descriptions(api_key: str, descriptions: List[str]) -> str:
+    # 메시지 구성
     messages = [
-        {"role": "system", "content": "당신은 비디오 콘텐츠를 요약하는 도우미입니다."},
         {
             "role": "user",
-            "content": "다음은 각 시간대별 비디오에서 추출된 프레임 이미지 설명입니다. 이를 기반으로 비디오의 전체 내용을 요약해주세요:\n" + "\n".join(descriptions)
+            "content": content_list
         }
     ]
 
     try:
-        async with aiohttp.ClientSession() as sess:
-            async with sess.post(
+        # API 요청
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {api_key}",
@@ -483,80 +398,105 @@ async def summarize_descriptions(api_key: str, descriptions: List[str]) -> str:
                 }
             ) as resp:
                 if resp.status != 200:
-                    err_detail = await resp.text()
-                    raise HTTPException(resp.status, f"OpenAI 요약 에러: {err_detail}")
-                data = await resp.json()
-                return data['choices'][0]['message']['content']
+                    error_detail = await resp.text()
+                    raise HTTPException(status_code=resp.status, detail=f"OpenAI API 에러: {error_detail}")
+                result = await resp.json()
+                description = result['choices'][0]['message']['content']
+                # 응답을 분석하여 각 타임코드별 설명을 리스트로 반환
+                analyzed_descriptions = description.strip().split('\n')
     except Exception as e:
-        raise HTTPException(500, f"요약 중 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"이미지 분석 중 오류 발생: {str(e)}")
 
+    return analyzed_descriptions
 
-# ------------------------------------------------
-# 메인 API 엔드포인트
-# ------------------------------------------------
+# 전체 분석 결과를 요약하는 함수
+async def summarize_descriptions(api_key: str, descriptions: List[str]) -> str:
+    messages = [
+        {"role": "system", "content": "당신은 비디오 콘텐츠를 요약하는 도우미입니다."},
+        {"role": "user", "content": "다음은 각 시간대별 비디오에서 추출된 프레임 이미지 설명입니다. 이를 기반으로 비디오의 전체적인 내용을 요약해주세요:\n" + "\n".join(descriptions)}
+    ]
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "gpt-4o",
+                    "messages": messages,
+                    "max_tokens": 2000
+                }
+            ) as resp:
+                if resp.status != 200:
+                    error_detail = await resp.text()
+                    raise HTTPException(status_code=resp.status, detail=f"OpenAI API 에러: {error_detail}")
+                result = await resp.json()
+                summary_text = result['choices'][0]['message']['content']
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"요약 중 오류 발생: {str(e)}")
+
+    return summary_text
+
 @app.post("/process_video_frames/")
-async def process_video_frames(req: VideoFrameAnalysisRequest):
-    # 1) 인증
-    if req.auth_key != REQUIRED_AUTH_KEY:
-        raise HTTPException(403, "유효하지 않은 인증 키입니다.")
+async def process_video_frames(request: VideoFrameAnalysisRequest):
+    if request.auth_key != REQUIRED_AUTH_KEY:
+        raise HTTPException(status_code=403, detail="유효하지 않은 인증 키입니다.")
 
-    # 2) URL 정규화
     try:
-        if is_youtube_url(req.video_url):
-            normalized_url = normalize_youtube_url(req.video_url)
-        elif is_instagram_url(req.video_url):
-            normalized_url = normalize_instagram_url(req.video_url)
+        # 유튜브 URL을 표준화 처리
+        if is_youtube_url(request.video_url):
+            normalized_video_url = normalize_youtube_url(request.video_url)
+        elif is_instagram_url(request.video_url):
+            normalized_video_url = normalize_instagram_url(request.video_url)
         else:
-            normalized_url = req.video_url
-    except ValueError as e:
-        raise HTTPException(400, f"잘못된 URL 형식: {e}")
+            normalized_video_url = request.video_url
 
-    # 3) 동영상 다운로드 (YouTube=Playwright, TikTok/인스타=기존 로직)
-    try:
-        video_file, caption = await download_video(normalized_url, req.downloader_api_key)
+        video_file, caption = download_video(normalized_video_url, request.downloader_api_key)
     except Exception as e:
-        raise HTTPException(500, f"동영상 다운로드 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"동영상 다운로드 중 오류 발생: {str(e)}")
 
-    # 4) 프레임 추출
     try:
-        if req.extraction_type == "interval":
-            if req.seconds_per_frame is None:
-                raise HTTPException(400, "interval 방식을 위해 seconds_per_frame가 필요합니다.")
-            frames_b64, timecodes = extract_frames_from_video(video_file, req.seconds_per_frame)
-        elif req.extraction_type == "keyframe":
-            if req.seconds_per_frame is None:
-                raise HTTPException(400, "keyframe 방식을 위해 seconds_per_frame가 필요합니다.")
-            frames_b64, timecodes = extract_keyframes_from_video(video_file, req.seconds_per_frame)
+        # 프레임 출시 방식에 따라 분기 처리
+        if request.extraction_type == "interval":
+            if request.seconds_per_frame is None:
+                raise HTTPException(status_code=400, detail="interval 방식에서는 seconds_per_frame 값이 필요합니다.")
+            frames_base64, timecodes = extract_frames_from_video(video_file, request.seconds_per_frame)
+        elif request.extraction_type == "keyframe":
+            if request.seconds_per_frame is None:
+                raise HTTPException(status_code=400, detail="keyframe 방식에서는 seconds_per_frame 값이 필요합니다.")
+            frames_base64, timecodes = extract_keyframes_from_video(video_file, request.seconds_per_frame)
         else:
-            raise HTTPException(400, "extraction_type은 'interval' 또는 'keyframe'이어야 합니다.")
+            raise HTTPException(status_code=400, detail="유효하지 않은 extraction_type 값입니다. 'interval' 또는 'keyframe'이어야 합니다.")
     except Exception as e:
+        # 동영상 파일 삭제
         if os.path.exists(video_file):
             os.remove(video_file)
-        raise HTTPException(500, f"프레임 추출 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"프레임 출시 중 오류 발생: {str(e)}")
 
-    # 5) 필요 시 동영상 파일 삭제
-    if os.path.exists(video_file):
-        os.remove(video_file)
-
-    # 6) 프레임 분석 & 요약
     try:
-        analyzed_desc = await analyze_frames_with_gpt4(req.api_key, frames_b64, timecodes)
-        summary_text = await summarize_descriptions(req.api_key, analyzed_desc)
+        # 동영상 파일 삭제
+        if os.path.exists(video_file):
+            os.remove(video_file)
+
+        analyzed_descriptions = await analyze_frames_with_gpt4(request.api_key, frames_base64, timecodes)
+        summary_text = await summarize_descriptions(request.api_key, analyzed_descriptions)
+
+        # Instagram 서적 추가
         if caption:
-            summary_text = f"[caption]: {caption}\n{summary_text}"
+            summary_text = f"[caption]: {caption}\n" + summary_text
+
     except Exception as e:
-        raise HTTPException(500, f"프레임 분석/요약 오류: {e}")
+        # 필요한 경우 추가로 정리 작업 수행
+        raise HTTPException(status_code=500, detail=f"프레임 분석 중 오류 발생: {str(e)}")
     finally:
-        del frames_b64
+        # 모든 프레임 데이터 삭제 (메모리에서)
+        del frames_base64
 
-    return {
-        "analysis": "\n".join(analyzed_desc),
-        "summary": summary_text
-    }
+    return {"analysis": "\n".join(analyzed_descriptions), "summary": summary_text}
 
-# ------------------------------------------------
-# 메인 실행
-# ------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
