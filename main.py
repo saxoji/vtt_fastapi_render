@@ -1,5 +1,3 @@
-다음 코드에서 유튜브 영상 다운로드 부분만 requests.get 방식말고  yd-dlp 라이브러리 를 사용하는 것으로 변경해라
-============================================
 import os
 import uuid
 import requests
@@ -509,9 +507,3 @@ async def process_video_frames(request: VideoFrameAnalysisRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-    =======================================
-    
-    yt-dlp 최신 라이브러리 문서는 다음과 같다.
-    ============================================
-    1. https://yt-dlp.eknerd.com/docs/Embedding%20yt-dlp/using-yt-dlp-in-python-scripts
-    2.https://yt-dlp.eknerd.com/docs/Embedding%20yt-dlp/examples-of-embedding
