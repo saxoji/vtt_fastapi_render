@@ -116,7 +116,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             ydl_opts = {
                 "outtmpl": os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.%(ext)s"),
                 "format": "mp4/bestaudio/best",  # mp4 우선
-                'cookiefile': '/opt/render/project/src/cookie_1.txt',  # 쿠키 파일 경로
+                'cookiefile': 'cookie_1.txt',  # 쿠키 파일 경로
                 # 필요에 따라 추가 옵션을 넣을 수 있습니다.
                 # 예: "quiet": True, "no_warnings": True, 등
             }
