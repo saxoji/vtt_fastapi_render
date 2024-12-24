@@ -15,6 +15,9 @@ import aiohttp
 import openai
 import time
 
+# (추가) yt-dlp 임포트
+import yt_dlp
+
 # Swagger 검사 설정
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI Video Frame Analysis API ENGINE",
@@ -53,7 +56,7 @@ class VideoFrameAnalysisRequest(BaseModel):
     auth_key: str
     video_url: str  # 동영상 URL (유튜브 또는 틱톡 링크 포함)
     seconds_per_frame: int = None  # 프레임 출시 간격(초), interval 방식에서 사용
-    downloader_api_key: str  # 동영상 다운로드를 위한 API 키
+    downloader_api_key: str  # 동영상 다운로드를 위한 API 키 (유튜브 외에는 사용될 수 있음)
     extraction_type: str  # "interval" 또는 "keyframe"
 
 # 유튜브 URL인지 확인하는 함수
@@ -102,72 +105,32 @@ def normalize_instagram_url(video_url: str) -> str:
 # URL로부터 동영상을 다운로드하는 함수
 def download_video(video_url: str, downloader_api_key: str) -> str:
     if is_youtube_url(video_url):
-        # 유튜브 동영상 처리
-        api_url = f"https://zylalabs.com/api/5789/video+downloader+api/7526/download+media?url={video_url}"
-        api_headers = {
-            'Authorization': f'Bearer {downloader_api_key}'
-        }
-    
-        response = requests.get(api_url, headers=api_headers)
-        if response.status_code != 200:
-            print("API 응답 에러:", response.status_code, response.text)
-            raise HTTPException(status_code=500, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
-    
-        data = response.json()
-    
-        # 데이터 구조 내의 "links" 키에서 MP4 파일 정보 확인
-        video_links = data.get('links', [])
-        if not video_links:
-            raise HTTPException(status_code=500, detail="동영상 링크 정보를 찾을 수 없습니다.")
-    
-        # 가능한 최고 화질의 MP4 동영상 URL 선택
-        highest_resolution = 0
-        highest_mp4_url = None
-        for link_info in video_links:
-            container = link_info.get('container', '')
-            mime_type = link_info.get('mimeType', '')
-            if ('mp4' in container) or ('video/mp4' in mime_type):
-                width = link_info.get('width', 0)
-                height = link_info.get('height', 0)
-                resolution = width * height
-                if resolution > highest_resolution:
-                    highest_resolution = resolution
-                    highest_mp4_url = link_info.get('link')
-    
-        if not highest_mp4_url:
-            print("MP4 파일을 찾을 수 없음")
-            raise HTTPException(status_code=500, detail="적절한 MP4 다운로드 링크를 찾을 수 없습니다.")
-    
-        print("선택된 고해상도 MP4 URL:", highest_mp4_url)
-    
-        # 실제 동영상 파일 다운로드
+        # -----------------------------------------------------------
+        # 유튜브 동영상 처리 (기존 requests.get → yt-dlp로 변경)
+        # -----------------------------------------------------------
+        # downloader_api_key는 yt-dlp 사용시 별도로 필요치 않으므로,
+        # 파라미터로 받은 downloader_api_key는 이곳에서 사용하지 않습니다.
+        # yt-dlp의 outtmpl을 통해 저장 경로(파일명)를 지정해줍니다.
+        # -----------------------------------------------------------
         try:
-            video_response = requests.get(highest_mp4_url, stream=True, timeout=30)
-            if video_response.status_code != 200:
-                print("동영상 다운로드 실패:", video_response.status_code)
-                raise HTTPException(status_code=video_response.status_code, detail="동영상을 다운로드하는 데 실패했습니다.")
-        except requests.exceptions.RequestException as e:
-            print("동영상 다운로드 요청 에러:", e)
-            raise HTTPException(status_code=500, detail=f"동영상 다운로드 요청 중 오류 발생: {e}")
-    
-        # VIDEO_DIR이 없다면 생성
-        os.makedirs(VIDEO_DIR, exist_ok=True)
-    
-        # 임의의 UUID로 로컬 파일 생성
-        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-        print("다운로드한 동영상 저장 경로:", video_file)
-    
-        try:
-            with open(video_file, 'wb') as file:
-                for chunk in video_response.iter_content(chunk_size=1024):
-                    if chunk:
-                        file.write(chunk)
+            ydl_opts = {
+                "outtmpl": os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.%(ext)s"),
+                "format": "mp4/bestaudio/best",  # mp4 우선
+                # 필요에 따라 추가 옵션을 넣을 수 있습니다.
+                # 예: "quiet": True, "no_warnings": True, 등
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info_dict = ydl.extract_info(video_url, download=True)
+                # 실제로 다운로드된 파일 경로를 얻습니다.
+                video_file = ydl.prepare_filename(info_dict)
+                
+            print("유튜브 동영상 다운로드 완료:", video_file)
+            return video_file, None
+
         except Exception as e:
-            print("파일 쓰기 오류:", e)
-            raise HTTPException(status_code=500, detail=f"파일 저장 중 오류 발생: {e}")
-
-        return video_file, None
-
+            print("유튜브 다운로드 중 에러 발생:", e)
+            raise HTTPException(status_code=500, detail=f"유튜브 동영상을 다운로드하는 중 오류 발생: {e}")
 
     elif is_tiktok_url(video_url):
         api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
@@ -219,7 +182,6 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             raise HTTPException(status_code=500, detail=f"파일 저장 중 오류 발생: {e}")
     
         return video_file, None
-
 
     elif is_instagram_url(video_url):
         # 인스타그램 동영상 처리
@@ -377,7 +339,7 @@ async def analyze_frames_with_gpt4(api_key: str, frames: List[str], timecodes: L
             "type": "image_url",
             "image_url": {
                 "url": f"data:image/jpeg;base64,{frame_base64}",
-                "detail": "high"  # 필요에 따라 "high"로 변경 가능
+                "detail": "high"
             }
         })
 
@@ -491,7 +453,7 @@ async def process_video_frames(request: VideoFrameAnalysisRequest):
         analyzed_descriptions = await analyze_frames_with_gpt4(request.api_key, frames_base64, timecodes)
         summary_text = await summarize_descriptions(request.api_key, analyzed_descriptions)
 
-        # Instagram 서적 추가
+        # Instagram caption 추가
         if caption:
             summary_text = f"[caption]: {caption}\n" + summary_text
 
