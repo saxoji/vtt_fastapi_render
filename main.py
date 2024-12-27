@@ -105,34 +105,52 @@ def normalize_instagram_url(video_url: str) -> str:
 # URL로부터 동영상을 다운로드하는 함수
 def download_video(video_url: str, downloader_api_key: str) -> str:
     if is_youtube_url(video_url):
-        # -----------------------------------------------------------
-        # 유튜브 동영상 처리 (기존 requests.get → yt-dlp로 변경)
-        # -----------------------------------------------------------
-        # downloader_api_key는 yt-dlp 사용시 별도로 필요치 않으므로,
-        # 파라미터로 받은 downloader_api_key는 이곳에서 사용하지 않습니다.
-        # yt-dlp의 outtmpl을 통해 저장 경로(파일명)를 지정해줍니다.
-        # -----------------------------------------------------------
         try:
-            ydl_opts = {
-                "outtmpl": os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.%(ext)s"),
-                #"format": "bestvideo[ext=mp4]+bestaudio/best",  # mp4 우선
-                "format": "b[ext=mp4]",  # mp4 우선
-                'cookiefile': 'cookie_1.txt',  # 쿠키 파일 경로
-                # 필요에 따라 추가 옵션을 넣을 수 있습니다.
-                # 예: "quiet": True, "no_warnings": True, 등
+            # API 서버에 POST 요청
+            api_url = "https://cobalt-s0bc.onrender.com"
+            headers = {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
             }
+            payload = {"url": video_url}
             
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info_dict = ydl.extract_info(video_url, download=True)
-                # 실제로 다운로드된 파일 경로를 얻습니다.
-                video_file = ydl.prepare_filename(info_dict)
-                
+            response = requests.post(api_url, headers=headers, json=payload)
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, 
+                                  detail=f"유튜브 API 서버 오류: {response.text}")
+            
+            # API 응답 파싱
+            data = response.json()
+            if data.get('status') == 'error':
+                raise HTTPException(status_code=500, 
+                                  detail="유튜브 동영상 정보를 가져오는데 실패했습니다.")
+            
+            # 다운로드 URL 가져오기
+            download_url = data.get('url')
+            if not download_url:
+                raise HTTPException(status_code=500, 
+                                  detail="다운로드 URL을 찾을 수 없습니다.")
+            
+            # 동영상 파일 다운로드
+            video_response = requests.get(download_url, stream=True)
+            if video_response.status_code != 200:
+                raise HTTPException(status_code=500, 
+                                  detail="동영상 다운로드에 실패했습니다.")
+            
+            # 파일 저장
+            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+            with open(video_file, 'wb') as file:
+                for chunk in video_response.iter_content(chunk_size=1024):
+                    if chunk:
+                        file.write(chunk)
+            
             print("유튜브 동영상 다운로드 완료:", video_file)
             return video_file, None
 
         except Exception as e:
             print("유튜브 다운로드 중 에러 발생:", e)
-            raise HTTPException(status_code=500, detail=f"유튜브 동영상을 다운로드하는 중 오류 발생: {e}")
+            raise HTTPException(status_code=500, 
+                              detail=f"유튜브 동영상을 다운로드하는 중 오류 발생: {e}")
 
     elif is_tiktok_url(video_url):
         api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
