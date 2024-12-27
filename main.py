@@ -58,6 +58,7 @@ class VideoFrameAnalysisRequest(BaseModel):
     seconds_per_frame: int = None  # 프레임 출시 간격(초), interval 방식에서 사용
     downloader_api_key: str  # 동영상 다운로드를 위한 API 키 (유튜브 외에는 사용될 수 있음)
     extraction_type: str  # "interval" 또는 "keyframe"
+    cobalt_url: str  # cobalt API URL
 
 # 유튜브 URL인지 확인하는 함수
 def is_youtube_url(url: str) -> bool:
@@ -112,7 +113,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         while retry_count < max_retries:
             try:
                 # API 서버에 POST 요청
-                api_url = "https://cobalt-s0bc.onrender.com"
+                api_url = cobalt_url
                 headers = {
                     'Accept': 'application/json',
                     'Content-Type': 'application/json'
