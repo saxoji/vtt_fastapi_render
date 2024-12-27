@@ -105,52 +105,77 @@ def normalize_instagram_url(video_url: str) -> str:
 # URL로부터 동영상을 다운로드하는 함수
 def download_video(video_url: str, downloader_api_key: str) -> str:
     if is_youtube_url(video_url):
-        try:
-            # API 서버에 POST 요청
-            api_url = "https://cobalt-s0bc.onrender.com"
-            headers = {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            }
-            payload = {"url": video_url}
-            
-            response = requests.post(api_url, headers=headers, json=payload)
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, 
-                                  detail=f"유튜브 API 서버 오류: {response.text}")
-            
-            # API 응답 파싱
-            data = response.json()
-            if data.get('status') == 'error':
+        max_retries = 3  # 최대 재시도 횟수
+        retry_count = 0
+        video_file = None
+        
+        while retry_count < max_retries:
+            try:
+                # API 서버에 POST 요청
+                api_url = "https://cobalt-s0bc.onrender.com"
+                headers = {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+                payload = {"url": video_url}
+                
+                response = requests.post(api_url, headers=headers, json=payload)
+                if response.status_code != 200:
+                    raise HTTPException(status_code=response.status_code, 
+                                      detail=f"유튜브 API 서버 오류: {response.text}")
+                
+                # API 응답 파싱
+                data = response.json()
+                if data.get('status') == 'error':
+                    raise HTTPException(status_code=500, 
+                                      detail="유튜브 동영상 정보를 가져오는데 실패했습니다.")
+                
+                # 다운로드 URL 가져오기
+                download_url = data.get('url')
+                if not download_url:
+                    raise HTTPException(status_code=500, 
+                                      detail="다운로드 URL을 찾을 수 없습니다.")
+                
+                # 동영상 파일 다운로드
+                video_response = requests.get(download_url, stream=True)
+                if video_response.status_code != 200:
+                    raise HTTPException(status_code=500, 
+                                      detail="동영상 다운로드에 실패했습니다.")
+                
+                # 파일 저장
+                video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+                with open(video_file, 'wb') as file:
+                    for chunk in video_response.iter_content(chunk_size=1024):
+                        if chunk:
+                            file.write(chunk)
+                
+                # 파일 사이즈 체크
+                file_size = os.path.getsize(video_file)
+                if file_size == 0:
+                    print(f"다운로드된 파일 사이즈가 0입니다. 재시도 {retry_count + 1}/{max_retries}")
+                    if os.path.exists(video_file):
+                        os.remove(video_file)  # 빈 파일 삭제
+                    retry_count += 1
+                    time.sleep(2)  # 재시도 전 잠시 대기
+                    continue
+                
+                print(f"유튜브 동영상 다운로드 완료: {video_file} (크기: {file_size} bytes)")
+                return video_file, None
+    
+            except Exception as e:
+                print(f"유튜브 다운로드 중 에러 발생 (시도 {retry_count + 1}/{max_retries}): {e}")
+                if video_file and os.path.exists(video_file):
+                    os.remove(video_file)  # 에러 발생 시 파일 삭제
+                retry_count += 1
+                if retry_count < max_retries:
+                    time.sleep(2)  # 재시도 전 잠시 대기
+                    continue
                 raise HTTPException(status_code=500, 
-                                  detail="유튜브 동영상 정보를 가져오는데 실패했습니다.")
-            
-            # 다운로드 URL 가져오기
-            download_url = data.get('url')
-            if not download_url:
-                raise HTTPException(status_code=500, 
-                                  detail="다운로드 URL을 찾을 수 없습니다.")
-            
-            # 동영상 파일 다운로드
-            video_response = requests.get(download_url, stream=True)
-            if video_response.status_code != 200:
-                raise HTTPException(status_code=500, 
-                                  detail="동영상 다운로드에 실패했습니다.")
-            
-            # 파일 저장
-            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-            with open(video_file, 'wb') as file:
-                for chunk in video_response.iter_content(chunk_size=1024):
-                    if chunk:
-                        file.write(chunk)
-            
-            print("유튜브 동영상 다운로드 완료:", video_file)
-            return video_file, None
-
-        except Exception as e:
-            print("유튜브 다운로드 중 에러 발생:", e)
-            raise HTTPException(status_code=500, 
-                              detail=f"유튜브 동영상을 다운로드하는 중 오류 발생: {e}")
+                                  detail=f"유튜브 동영상을 다운로드하는 중 오류 발생: {e}")
+    
+        # 최대 재시도 횟수를 초과한 경우
+        raise HTTPException(status_code=500, 
+                          detail=f"최대 재시도 횟수({max_retries})를 초과했습니다. 다운로드에 실패했습니다.")
 
     elif is_tiktok_url(video_url):
         api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
