@@ -105,7 +105,7 @@ def normalize_instagram_url(video_url: str) -> str:
 # URL로부터 동영상을 다운로드하는 함수
 def download_video(video_url: str, downloader_api_key: str) -> str:
     if is_youtube_url(video_url):
-        max_retries = 3  # 최대 재시도 횟수
+        max_retries = 5  # 최대 재시도 횟수
         retry_count = 0
         video_file = None
         
