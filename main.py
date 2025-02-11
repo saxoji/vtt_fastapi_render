@@ -232,7 +232,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
     elif is_instagram_url(video_url):
         # 인스타그램 동영상 처리
         normalized_url = normalize_instagram_url(video_url)
-        api_url = f"https://zylalabs.com/api/1943/instagram+reels+downloader+api/2944/reel+downloader?url={normalized_url}"
+        api_url = f"https://zylalabs.com/api/1943/instagram+reels+downloader+api/6423/get+reels?url={normalized_url}"
         headers = {
             'Authorization': f'Bearer {downloader_api_key}'
         }
@@ -242,7 +242,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             raise HTTPException(status_code=response.status_code, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
 
         data = response.json()
-        video_url = data.get("video")
+        video_url = data.get("download_url")
         caption = data.get("caption", "")
 
         if not video_url:
