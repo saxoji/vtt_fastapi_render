@@ -232,7 +232,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
     elif is_instagram_url(video_url):
         # 인스타그램 동영상 처리
         normalized_url = normalize_instagram_url(video_url)
-        api_url = f"https://zylalabs.com/api/1943/instagram+reels+downloader+api/6423/get+reels?url={normalized_url}"
+        api_url = f"https://zylalabs.com/api/2828/reel+downloader+for+instagram+api/6999/reel+downloader?url={normalized_url}"
         headers = {
             'Authorization': f'Bearer {downloader_api_key}'
         }
@@ -242,22 +242,20 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
             raise HTTPException(status_code=response.status_code, detail="API로부터 동영상 정보를 가져오는 데 실패했습니다.")
 
         data = response.json()
-        video_url = data.get("download_url")
-        caption = data.get("caption", "")
-
-        if not video_url:
+        if not data.get('media') or not data['media'][0].get('url'):
             raise HTTPException(status_code=500, detail="적절한 MP4 파일을 찾을 수 없습니다.")
 
-        print(f"Downloading from URL: {video_url}")
+        download_url = data['media'][0]['url']
+        print(f"Downloading from URL: {download_url}")
 
-        video_response = requests.get(video_url, stream=True)
+        video_response = requests.get(download_url, stream=True)
         video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
         with open(video_file, 'wb') as file:
             for chunk in video_response.iter_content(chunk_size=1024):
                 if chunk:
                     file.write(chunk)
 
-        return video_file, caption
+        return video_file, None
 
     else:
         print(f"Downloading from URL: {video_url}")
