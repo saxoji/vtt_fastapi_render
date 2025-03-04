@@ -179,7 +179,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
                           detail=f"최대 재시도 횟수({max_retries})를 초과했습니다. 다운로드에 실패했습니다.")
 
     elif is_tiktok_url(video_url):
-        api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
+        api_url = "https://zylalabs.com/api/5271/snaptik+video+api/6790/fetch+tiktok+video"
         api_headers = {
             'Authorization': f'Bearer {downloader_api_key}'
         }
@@ -198,7 +198,7 @@ def download_video(video_url: str, downloader_api_key: str) -> str:
         print("API Response:", json.dumps(data, indent=4))  # 디버깅용
     
         # 다운로드 URL 확인
-        download_url = data.get('download_url')
+        download_url = data.get('play')
         if not download_url:
             raise HTTPException(status_code=500, detail="TikTok API 응답에서 다운로드 URL을 찾을 수 없습니다.")
     
